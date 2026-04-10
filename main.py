@@ -21,9 +21,11 @@ def main():
     image = args.image
     queries = [args.query]
 
+    results = []
     for q in queries:
         print(f"\n🔍 查找: {q}")
         result = detect_element(image, q)
+        results.append(result)
         if result.found and result.bbox:
             print(f"  ✅ {result.description}")
             print(f"  📐 {result.bbox}")
@@ -34,9 +36,8 @@ def main():
             print(f"  💭 思考: {result.thought}")
 
     # 绘制标注图
-    first = detect_element(image, queries[0])
-    if first.found and first.bbox:
-        draw_bbox(image, first, "result.png")
+    if results and results[0].found and results[0].bbox:
+        draw_bbox(image, results[0], "result.png")
         print("\n已保存标注结果到 result.png")
 
 

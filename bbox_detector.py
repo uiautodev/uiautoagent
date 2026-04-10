@@ -42,10 +42,10 @@ class BBox(BaseModel):
 
 
 class ElementLocation(BaseModel):
+    thought: str | None = None
     found: bool
     bbox: list[int] | None
     description: str | None = None
-    thought: str | None = None
 
 
 class DetectionResult(BaseModel):
@@ -85,6 +85,7 @@ SYSTEM_PROMPT = f"""你是一个UI元素定位专家。用户会给你一张截�
 {_EXAMPLES}
 """
 
+print("SYSTEM_PROMPT:", SYSTEM_PROMPT)
 
 def _encode_image(image_source: str | Path) -> tuple[str, str]:
     """将图片编码为base64，返回 (base64_str, media_type)"""
@@ -160,6 +161,7 @@ def detect_element(
     )
 
     raw = response.choices[0].message.content
+    print("Raw:", raw)
     loc = ElementLocation.model_validate_json(raw)
 
     bbox = None

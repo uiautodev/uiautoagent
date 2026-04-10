@@ -221,3 +221,5 @@ __marimo__/
 .env
 result.png
 .DS_Store
+screenshots/
+task_*.json
