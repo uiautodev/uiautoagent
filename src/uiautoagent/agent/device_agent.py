@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from uiautoagent.controller.base import DeviceController, SwipeDirection
+from uiautoagent.types import TokenUsage
 from uiautoagent.detector import DetectionResult
 
 
@@ -31,6 +32,7 @@ class ActionDetail(BaseModel):
     """操作详情（坐标等可视化信息）"""
 
     tap_position: tuple[int, int] | None = None
+    tap_bbox: tuple[int, int, int, int] | None = None  # (x1, y1, x2, y2)
     swipe_start: tuple[int, int] | None = None
     swipe_end: tuple[int, int] | None = None
     swipe_direction: SwipeDirection | None = None
@@ -61,7 +63,9 @@ class RecordingController(DeviceController):
         self.last_detail = ActionDetail(swipe_start=(x1, y1), swipe_end=(x2, y2))
         self._inner.swipe(x1, y1, x2, y2, duration_ms)
 
-    def swipe_direction(self, direction: SwipeDirection, ratio: float = 0.5, duration_ms: int = 300) -> None:
+    def swipe_direction(
+        self, direction: SwipeDirection, ratio: float = 0.5, duration_ms: int = 300
+    ) -> None:
         self.last_detail = ActionDetail(swipe_direction=direction)
         self._inner.swipe_direction(direction, ratio, duration_ms)
 
@@ -87,7 +91,11 @@ class RecordingController(DeviceController):
 
     def tap_bbox(self, bbox) -> None:
         x, y = bbox.center
-        self.tap(x, y)
+        self.last_detail = ActionDetail(
+            tap_position=(x, y),
+            tap_bbox=(bbox.x1, bbox.y1, bbox.x2, bbox.y2),
+        )
+        self._inner.tap(x, y)
 
     @staticmethod
     def list_devices() -> list[str]:
@@ -143,6 +151,11 @@ class TaskStep(BaseModel):
     action_detail: ActionDetail | None = None  # 操作详情（坐标等）
     success: bool
     timestamp: float
+    elapsed: float | None = None  # 执行耗时（秒）
+    ai_tokens: TokenUsage | None = None  # AI token 消耗
+    ai_response: str | None = None  # AI 原始响应文本
+    ai_system_prompt: str | None = None  # AI 系统提示词
+    ai_user_prompt: str | None = None  # AI 用户提示词（不含截图）
 
     class Config:
         use_enum_values = True
@@ -190,6 +203,13 @@ class DeviceAgent:
         """截取屏幕并保存"""
         if self.config.save_screenshots:
             path = self.screenshot_dir / f"step_{self.step_count:03d}.png"
+            if path.exists():
+                suffix = 1
+                while path.exists():
+                    path = (
+                        self.screenshot_dir / f"step_{self.step_count:03d}_{suffix}.png"
+                    )
+                    suffix += 1
         else:
             path = Path("temp_screenshot.png")
         return self.controller.screenshot(path)
@@ -199,9 +219,7 @@ class DeviceAgent:
         if self.config.verbose:
             print(message)
 
-    def _detect_and_tap(
-        self, screenshot_path: Path, target: str
-    ) -> DetectionResult:
+    def _detect_and_tap(self, screenshot_path: Path, target: str) -> DetectionResult:
         """检测并点击元素，返回检测结果"""
         from uiautoagent.detector import detect_element
 
@@ -221,7 +239,14 @@ class DeviceAgent:
         start_result = results.get(start)
         end_result = results.get(end)
 
-        if start_result and start_result.found and start_result.bbox and end_result and end_result.found and end_result.bbox:
+        if (
+            start_result
+            and start_result.found
+            and start_result.bbox
+            and end_result
+            and end_result.found
+            and end_result.bbox
+        ):
             x1, y1 = start_result.bbox.center
             x2, y2 = end_result.bbox.center
             self.controller.swipe(x1, y1, x2, y2)
@@ -281,12 +306,13 @@ class DeviceAgent:
         except Exception as e:
             return f"执行出错: {e}"
 
-    def step(self, action: Action) -> TaskStep:
+    def step(self, action: Action, screenshot_path: Path | None = None) -> TaskStep:
         """
         执行一步操作
 
         Args:
             action: 要执行的动作
+            screenshot_path: 操作前截图路径；若为 None 则自动截图
 
         Returns:
             执行的步骤记录
@@ -295,7 +321,12 @@ class DeviceAgent:
         self.step_count += 1
 
         # 截图（记录操作前的屏幕状态）
-        screenshot_path = self._take_screenshot()
+        if screenshot_path is None:
+            screenshot_path = self._take_screenshot()
+
+        # 重置操作详情，避免残留上一步的坐标
+        if isinstance(self.controller, RecordingController):
+            self.controller.last_detail = ActionDetail()
 
         # 执行动作
         observation = self._execute_action(action, screenshot_path)
@@ -323,6 +354,7 @@ class DeviceAgent:
             action_detail=detail,
             success=success,
             timestamp=time.time(),
+            elapsed=round(elapsed, 3),
         )
         self.history.append(step)
 
@@ -339,6 +371,12 @@ class DeviceAgent:
     def get_current_screenshot(self) -> Path:
         """获取当前屏幕截图（用于AI决策）"""
         return self._take_screenshot()
+
+    def _append_step_log(self, step: TaskStep) -> None:
+        """将单步执行记录实时追加到 log.jsonl"""
+        log_path = self.task_dir / "log.jsonl"
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(step.model_dump(), ensure_ascii=False) + "\n")
 
     def save_history(self, path: str | Path | None = None):
         """保存任务历史到JSON文件"""
@@ -419,7 +457,7 @@ class DeviceAgent:
         if stats_by_category:
             # 分类名称映射
             category_names = {
-                "decision": "AI决策思考",
+                "plan": "AI计划思考",
                 "clarify": "任务澄清",
                 "summarize": "任务总结",
             }
@@ -488,7 +526,7 @@ class DeviceAgent:
             if stats_by_category:
                 # 分类名称映射
                 category_names = {
-                    "decision": "AI决策思考",
+                    "plan": "AI计划思考",
                     "clarify": "任务澄清",
                     "summarize": "任务总结",
                 }
@@ -520,8 +558,7 @@ class DeviceAgent:
                     "observation": s.observation,
                     "success": s.success,
                 }
-                for s in self.history  # 所有步骤
+                for s in self.history
             ],
-            "current_screenshot": str(self.get_current_screenshot()),
             "device_info": self.controller.get_device_info(),
         }

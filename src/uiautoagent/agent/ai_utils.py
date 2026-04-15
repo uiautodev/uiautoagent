@@ -149,7 +149,7 @@ def clarify_task(task: str) -> str:
         clarified = (response.choices[0].message.content or "").strip()
 
         if clarified and clarified != task:
-            print(f"✏️  任务已澄清: {task!r} → {clarified!r}")
+            print(f"✏️  任务已澄清: {clarified!r}")
             return clarified
         return task
 

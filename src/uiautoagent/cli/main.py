@@ -6,6 +6,7 @@ import argparse
 
 from uiautoagent.agent import Action, ActionType, AgentConfig, DeviceAgent
 from uiautoagent.agent.executor import run_ai_task
+from uiautoagent.ai import check_all_models_available
 from uiautoagent.controller import AndroidController, IOSController
 
 
@@ -177,12 +178,13 @@ def main():
     )
     args = parser.parse_args()
 
+    if not check_all_models_available():
+        return
+
     if args.mode == "manual":
         demo_manual_control(platform=args.platform, serial=args.serial)
     elif args.mode == "ai":
-        demo_ai_assisted_task(
-            args.task, platform=args.platform, serial=args.serial
-        )
+        demo_ai_assisted_task(args.task, platform=args.platform, serial=args.serial)
     else:
         demo_find_and_click(
             target=args.task, platform=args.platform, serial=args.serial

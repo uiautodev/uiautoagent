@@ -12,7 +12,14 @@ from PIL import Image, ImageDraw
 from uiautoagent.agent.device_agent import ActionDetail, TaskStep
 
 
-def _draw_crosshair(draw: ImageDraw.ImageDraw, x: int, y: int, size: int = 20, color: str = "red", width: int = 3):
+def _draw_crosshair(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    size: int = 20,
+    color: str = "red",
+    width: int = 3,
+):
     """在图片上绘制十字准心"""
     # 十字线
     draw.line([(x - size, y), (x + size, y)], fill=color, width=width)
@@ -22,11 +29,20 @@ def _draw_crosshair(draw: ImageDraw.ImageDraw, x: int, y: int, size: int = 20, c
     draw.ellipse([(x - r, y - r), (x + r, y + r)], outline=color, width=width)
 
 
-def _draw_arrow(draw: ImageDraw.ImageDraw, x1: int, y1: int, x2: int, y2: int, color: str = "green", width: int = 4):
+def _draw_arrow(
+    draw: ImageDraw.ImageDraw,
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    color: str = "green",
+    width: int = 4,
+):
     """在图片上绘制带箭头的线"""
     draw.line([(x1, y1), (x2, y2)], fill=color, width=width)
     # 箭头
     import math
+
     angle = math.atan2(y2 - y1, x2 - x1)
     arrow_len = 20
     arrow_angle = math.pi / 6
@@ -46,9 +62,15 @@ def annotate_screenshot(
     img = Image.open(screenshot_path).convert("RGB")
     draw = ImageDraw.Draw(img)
 
+    if detail.tap_bbox:
+        x1, y1, x2, y2 = detail.tap_bbox
+        draw.rectangle([x1, y1, x2, y2], outline="orange", width=3)
+
     if detail.tap_position:
         x, y = detail.tap_position
-        _draw_crosshair(draw, x, y, size=max(img.width, img.height) // 30, color="red", width=4)
+        _draw_crosshair(
+            draw, x, y, size=max(img.width, img.height) // 30, color="red", width=4
+        )
         draw.text((x + 15, y - 25), f"TAP ({x}, {y})", fill="red")
 
     if detail.swipe_start and detail.swipe_end:
@@ -69,7 +91,9 @@ def annotate_screenshot(
         if detail.swipe_direction in dirs:
             sx1, sy1, sx2, sy2 = dirs[detail.swipe_direction]
             _draw_arrow(draw, sx1, sy1, sx2, sy2, color="green", width=4)
-            draw.text((cx - 40, cy - 40), f"SWIPE {detail.swipe_direction}", fill="green")
+            draw.text(
+                (cx - 40, cy - 40), f"SWIPE {detail.swipe_direction}", fill="green"
+            )
 
     img.save(output_path)
     return output_path
@@ -78,7 +102,9 @@ def annotate_screenshot(
 def _image_to_base64(path: Path) -> str:
     """将图片转为base64 data URI"""
     suffix = path.suffix.lower()
-    mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}.get(suffix.lstrip("."), "image/png")
+    mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}.get(
+        suffix.lstrip("."), "image/png"
+    )
     data = base64.b64encode(path.read_bytes()).decode()
     return f"data:{mime};base64,{data}"
 
@@ -122,12 +148,16 @@ def generate_html_report(
         if not screenshot_path.exists():
             continue
         detail = step.action_detail
-        if detail and (detail.tap_position or detail.swipe_start or detail.swipe_direction or detail.is_back):
+        if detail and (
+            detail.tap_position
+            or detail.swipe_start
+            or detail.swipe_direction
+            or detail.is_back
+        ):
             out_path = annotated_dir / f"step_{step.step_number:03d}.png"
             annotate_screenshot(screenshot_path, detail, out_path)
             annotated_images[step.step_number] = _image_to_base64(out_path)
         else:
-            # 无坐标标注的操作，直接用原图
             annotated_images[step.step_number] = _image_to_base64(screenshot_path)
 
     # 构建HTML
@@ -137,7 +167,11 @@ def generate_html_report(
         icon = _action_icon(step.action.type)
         status_class = "success" if step.success else "fail"
         status_text = "成功" if step.success else "失败"
-        thought_html = f'<p class="thought">💭 {html.escape(step.action.thought)}</p>' if step.action.thought else ""
+        thought_html = (
+            f'<p class="thought">💭 {html.escape(step.action.thought)}</p>'
+            if step.action.thought
+            else ""
+        )
         detail_html = ""
         if step.action_detail:
             d = step.action_detail
@@ -145,7 +179,9 @@ def generate_html_report(
             if d.tap_position:
                 parts.append(f"点击坐标: ({d.tap_position[0]}, {d.tap_position[1]})")
             if d.swipe_start and d.swipe_end:
-                parts.append(f"滑动: ({d.swipe_start[0]}, {d.swipe_start[1]}) → ({d.swipe_end[0]}, {d.swipe_end[1]})")
+                parts.append(
+                    f"滑动: ({d.swipe_start[0]}, {d.swipe_start[1]}) → ({d.swipe_end[0]}, {d.swipe_end[1]})"
+                )
             if d.swipe_direction:
                 parts.append(f"方向滑动: {d.swipe_direction}")
             if d.is_back:
@@ -153,9 +189,53 @@ def generate_html_report(
             if parts:
                 detail_html = '<p class="detail">' + " | ".join(parts) + "</p>"
 
+        # AI 信息：token 消耗 + 耗时
+        ai_parts = []
+        if step.elapsed is not None:
+            ai_parts.append(f"⏱ {step.elapsed:.2f}s")
+        if step.ai_tokens:
+            t = step.ai_tokens
+            ai_parts.append(f"🪙 {t.total} tokens (↑{t.prompt} ↓{t.completion})")
+        if steps:
+            delta = int(step.timestamp - steps[0].timestamp)
+            ai_parts.append(f"🕐 {delta // 60:02d}:{delta % 60:02d}")
+        ai_html = (
+            f'<p class="ai-meta">{" &nbsp;|&nbsp; ".join(ai_parts)}</p>'
+            if ai_parts
+            else ""
+        )
+
+        # AI 详细信息（可折叠）
+        ai_detail_parts = []
+        if step.ai_response:
+            ai_detail_parts.append(("AI 响应", html.escape(step.ai_response)))
+        if step.ai_system_prompt:
+            ai_detail_parts.append(
+                ("System Prompt", html.escape(step.ai_system_prompt))
+            )
+        if step.ai_user_prompt:
+            ai_detail_parts.append(("User Prompt", html.escape(step.ai_user_prompt)))
+
+        ai_response_html = ""
+        if ai_detail_parts:
+            details_html = ""
+            for label, content in ai_detail_parts:
+                details_html += f"""<details class="ai-response-nested">
+                            <summary>{label}</summary>
+                            <pre>{content}</pre>
+                        </details>"""
+            ai_response_html = f"""<details class="ai-response">
+                        <summary>AI 详细信息</summary>
+                        {details_html}
+                    </details>"""
+
         # 操作前截图（标注操作位置）
         before_src = annotated_images.get(step.step_number, "")
-        before_html = f'<img src="{before_src}" alt="步骤{step.step_number} 操作前" loading="lazy">' if before_src else ""
+        before_html = (
+            f'<img src="{before_src}" alt="步骤{step.step_number} 操作前" loading="lazy">'
+            if before_src
+            else ""
+        )
 
         # 操作后截图（使用下一步的操作前截图）
         after_src = ""
@@ -164,7 +244,11 @@ def generate_html_report(
             next_path = Path(next_step.screenshot_path)
             if next_path.exists():
                 after_src = _image_to_base64(next_path)
-        after_html = f'<img src="{after_src}" alt="步骤{step.step_number} 操作后" loading="lazy">' if after_src else ""
+        after_html = (
+            f'<img src="{after_src}" alt="步骤{step.step_number} 操作后" loading="lazy">'
+            if after_src
+            else ""
+        )
 
         # 截图区域：左边操作前（标注），右边操作后（结果）
         screenshots_html = f"""
@@ -192,6 +276,8 @@ def generate_html_report(
                     {thought_html}
                     <p class="observation">👁️ {html.escape(step.observation)}</p>
                     {detail_html}
+                    {ai_html}
+                    {ai_response_html}
                 </div>
             </div>
         </div>"""
@@ -229,6 +315,12 @@ def generate_html_report(
     .thought {{ color: #666; font-style: italic; }}
     .observation {{ color: #333; }}
     .detail {{ color: #1976d2; font-family: monospace; font-size: 13px; }}
+    .ai-meta {{ color: #888; font-size: 12px; margin-top: 6px; }}
+    .ai-response {{ margin-top: 8px; }}
+    .ai-response summary {{ font-size: 12px; color: #999; cursor: pointer; }}
+    .ai-response-nested {{ margin: 4px 0; }}
+    .ai-response-nested summary {{ font-size: 12px; color: #666; cursor: pointer; }}
+    .ai-response pre {{ margin-top: 4px; padding: 8px; background: #f8f8f8; border-radius: 4px; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; }}
     @media (max-width: 768px) {{
         .step-body {{ flex-direction: column; }}
         .screenshots {{ flex-direction: column; }}

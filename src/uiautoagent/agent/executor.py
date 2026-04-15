@@ -4,13 +4,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from uiautoagent import Category, chat_completion
 from uiautoagent.agent import AgentConfig, DeviceAgent, Action, ActionType
 from uiautoagent.agent.ai_utils import summarize_task
 from uiautoagent.agent.memory import TaskMemory, get_task_memory
 from uiautoagent.controller import AndroidController, IOSController
+from uiautoagent.detector.bbox_detector import safe_validate_json
+from uiautoagent.types import TokenUsage
+
+
+class PlanResponse(BaseModel):
+    """AI 规划响应结构"""
+
+    type: str
+    thought: str = ""
+    target: str | None = None
+    text: str | None = None
+    direction: str | None = None
+    swipe_start: str | None = None
+    swipe_end: str | None = None
+    wait_ms: int = Field(default=1000, ge=0)
+    return_result: bool = False
+    result: str | None = None
 
 
 def _setup_android_device(serial: str | None) -> tuple:
@@ -174,14 +191,16 @@ def encode_screenshot(screenshot_path: str | Path) -> str:
         return base64.b64encode(f.read()).decode()
 
 
-def call_ai_decision(system_prompt: str, user_prompt: str, screenshot_b64: str) -> dict:
-    """调用AI决策API
+def call_ai_plan(
+    system_prompt: str, user_prompt: str, screenshot_b64: str
+) -> PlanResponse:
+    """调用AI规划API
 
     Returns:
-        决策字典
+        PlanResponse 规划结果
     """
     response = chat_completion(
-        category=Category.DECISION,
+        category=Category.PLAN,
         messages=[
             {"role": "system", "content": system_prompt},
             {
@@ -200,49 +219,40 @@ def call_ai_decision(system_prompt: str, user_prompt: str, screenshot_b64: str) 
         temperature=0.0,
     )
 
-    decision_text = response.choices[0].message.content
-    if not decision_text:
+    plan_text = response.choices[0].message.content
+    if not plan_text:
         raise ValueError("AI返回空响应")
 
-    print(f"[AI思考] {decision_text[:200]}...")
+    print(f"[AI思考] {plan_text[:200]}...")
 
-    import json
-
-    return json.loads(decision_text)
+    return safe_validate_json(plan_text, PlanResponse)
 
 
-def parse_action_from_decision(decision: dict) -> Action:
-    """从AI决策解析出Action对象"""
-    action_type = ActionType(decision.get("type", "fail"))
+def parse_action_from_plan(plan: PlanResponse) -> Action:
+    """从AI规划解析出Action对象"""
+    action_type = ActionType(plan.type if plan.type else "fail")
 
-    # 构建Action参数，过滤掉空字符串
-    kwargs = {
+    kwargs: dict = {
         "type": action_type,
-        "thought": decision.get("thought") or "",
+        "thought": plan.thought or "",
     }
 
-    # 只在非空时添加可选字段
-    if decision.get("target"):
-        kwargs["target"] = decision["target"]
-    if decision.get("text"):
-        kwargs["text"] = decision["text"]
-    if decision.get("direction") and decision["direction"] in (
-        "up",
-        "down",
-        "left",
-        "right",
-    ):
-        kwargs["direction"] = decision["direction"]
-    if decision.get("swipe_start"):
-        kwargs["swipe_start"] = decision["swipe_start"]
-    if decision.get("swipe_end"):
-        kwargs["swipe_end"] = decision["swipe_end"]
-    if decision.get("wait_ms"):
-        kwargs["wait_ms"] = decision["wait_ms"]
-    if decision.get("return_result"):
+    if plan.target:
+        kwargs["target"] = plan.target
+    if plan.text:
+        kwargs["text"] = plan.text
+    if plan.direction and plan.direction in ("up", "down", "left", "right"):
+        kwargs["direction"] = plan.direction
+    if plan.swipe_start:
+        kwargs["swipe_start"] = plan.swipe_start
+    if plan.swipe_end:
+        kwargs["swipe_end"] = plan.swipe_end
+    if plan.wait_ms:
+        kwargs["wait_ms"] = plan.wait_ms
+    if plan.return_result:
         kwargs["return_result"] = True
-    if decision.get("result"):
-        kwargs["result"] = decision["result"]
+    if plan.result:
+        kwargs["result"] = plan.result
 
     return Action(**kwargs)
 
@@ -295,14 +305,15 @@ def handle_task_status(
 
 
 def handle_ai_error(agent: DeviceAgent, error: Exception):
-    """处理AI决策错误"""
+    """处理AI决策错误（非JSON解析错误时执行返回兜底）"""
     print(f"❌ AI决策出错: {error}")
-    agent.step(
+    step = agent.step(
         Action(
             type=ActionType.BACK,
             thought="AI决策出错，尝试返回",
         )
     )
+    agent._append_step_log(step)
 
 
 def execute_ai_task(agent: DeviceAgent, task: str) -> TaskResult:
@@ -349,16 +360,38 @@ def execute_ai_task(agent: DeviceAgent, task: str) -> TaskResult:
 
         # 调用AI决策
         try:
-            decision = call_ai_decision(system_prompt, user_prompt, screenshot_b64)
-            action = parse_action_from_decision(decision)
+            from uiautoagent.ai import TokenTracker
 
-            # 执行动作
-            agent.step(action)
+            tokens_before = TokenTracker.get_total()
+
+            plan = call_ai_plan(system_prompt, user_prompt, screenshot_b64)
+            action = parse_action_from_plan(plan)
+
+            # 执行动作（复用已截好的图，避免重复截图）
+            task_step = agent.step(action, screenshot_path=screenshot_path)
+
+            # 计算本步总 token 消耗（plan + detect 等所有 AI 调用）
+            tokens_after = TokenTracker.get_total()
+            task_step.ai_tokens = TokenUsage(
+                prompt=tokens_after.prompt - tokens_before.prompt,
+                completion=tokens_after.completion - tokens_before.completion,
+                total=tokens_after.total - tokens_before.total,
+            )
+            task_step.ai_response = plan.model_dump_json(exclude_none=True)
+            task_step.ai_system_prompt = system_prompt
+            task_step.ai_user_prompt = user_prompt
+
+            # 所有字段已填充，写入实时日志
+            agent._append_step_log(task_step)
 
             # 检查任务状态
             result = handle_task_status(action, agent, task, task_memory)
             if result is not None:
                 return result
+
+        except ValueError as e:
+            # AI返回格式错误且修复失败，跳过本步重试
+            print(f"⚠️  AI返回格式错误，跳过本步重试: {e}")
 
         except Exception as e:
             handle_ai_error(agent, e)

@@ -5,10 +5,12 @@ AI 驱动的 UI 自动化框架，支持视觉定位和自主任务执行。
 ## 特性
 
 - 🎯 AI 视觉定位元素，无需 DOM
-- 🤖 自主决策执行任务
+- 🤖 自主规划执行任务
 - 🧠 任务记忆学习
 - 📱 Android / iOS 设备支持
 - 🔧 灵活的模型配置（支持不同场景使用不同模型）
+- 📊 可视化 HTML 报告（标注截图、token 消耗、耗时）
+- 🔍 启动时自动检查模型可用性
 
 ## 安装
 
@@ -29,21 +31,51 @@ API_KEY=sk-xxx
 MODEL_NAME=doubao-seed-2.0-pro
 
 # 可选：为不同场景配置不同的模型
-MODEL_DECISION=gpt-4o      # AI决策模型（需要视觉能力）
-MODEL_DETECT=doubao-seed-2.0-pro             # 元素检测模型（需要视觉能力）
-MODEL_TEXT=gpt-4o-mini          # 文本处理模型（总结、澄清等）
+MODEL_PLAN=                # AI规划模型（需要视觉能力）
+MODEL_DETECT=.             # 元素检测模型（需要视觉能力）
+MODEL_TEXT=.               # 文本处理模型（总结、澄清等）
+
+# 代理配置（可选）
+MODEL_PROXY=http://127.0.0.1:7890
 
 # 请求超时时间（秒）
 REQUEST_TIMEOUT=60
+
+# OpenRouter 请求追踪（可选）
+OPENROUTER_SITE_URL=https://yoursite.com
+OPENROUTER_SITE_NAME=YourAppName
+SESSION_ID=my-session-123   # 默认自动生成 UUID
 ```
+
+推荐的配置
+
+```
+# 方案1
+MODEL_NAME=doubao-seed-2.0-pro
+
+# 方案2 (Openrouter)
+BASE_URL=https://openrouter.ai/api/v1
+API_KEY=sk-...
+# 由于openrouter不让国外访问，需要配置个国外的代理才行
+MODEL_PROXY=http://localhost:1080
+
+# 这两个配合价格便宜一些，10步以内的话，费用不到2毛钱
+# openai/gpt-5-mini   $0.25/M input tokens $2/M output tokens
+# openai/gpt-5.4-mini $0.75/M input tokens $4.50/M output tokens
+# z.ai/glm-5v-turbo   $1.20/M input tokens $4/M output tokens
+# z.ai/glm-4.6v       $0.30/M input tokens $0.90/M output tokens
+MODEL_NAME=openai/gpt-5-mini
+MODEL_DETECT=z-ai/glm-4.6v
+```
+
 
 ### 场景说明
 
-| 场景 | 说明 | 模型要求 |
-|------|------|----------|
-| `DECISION` | AI 决策下一步操作 | 需要视觉能力 |
-| `DETECT` | UI 元素检测定位 | 需要视觉能力 |
-| `TEXT` | 文本处理（总结、澄清、搜索） | 纯文本，无视觉要求 |
+| 场景 | 环境变量 | 说明 | 模型要求 |
+|------|----------|------|----------|
+| `PLAN` | `MODEL_PLAN` | AI 规划下一步操作 | 需要视觉能力 |
+| `DETECT` | `MODEL_DETECT` | UI 元素检测定位 | 需要视觉能力 |
+| `TEXT` | `MODEL_TEXT` | 文本处理（总结、澄清、搜索） | 纯文本，无视觉要求 |
 
 ## 快速开始
 
@@ -58,6 +90,27 @@ uv run uiautoagent -m ai -t "修改昵称为 kitty" -p ios
 uv run uiautoagent -m find    # 查找并点击
 uv run uiautoagent -m manual  # 手动控制
 ```
+
+启动时会自动检查所有配置模型的可用性：
+
+```
+🔍 检查模型可用性（共 2 个）...
+  ✅ 'gpt-4o' [default, plan]
+  ✅ 'gpt-4o-mini' [detect, text]
+```
+
+## 任务报告
+
+每次任务执行完成后，会在 `tasks/task_xxx/` 目录下生成：
+
+| 文件 | 说明 |
+|------|------|
+| `report.html` | 可视化 HTML 报告，包含标注截图、AI 原始响应、token 消耗、耗时 |
+| `history.json` | 完整步骤记录（含 token 统计） |
+| `log.jsonl` | 实时追加的步骤日志（每步执行后立即写入） |
+| `summary.txt` | 文本摘要 |
+| `screenshots/` | 原始截图 |
+| `annotated/` | 标注了操作位置和 bbox 的截图 |
 
 ## Python API
 
@@ -87,8 +140,8 @@ from uiautoagent import detect_element, draw_bbox
 # 检测元素
 result = detect_element("screenshot.png", "登录按钮")
 if result.found:
-    print(f"位置: {result.bbox}")  # BBox(x, y, width, height)
-    draw_bbox("screenshot.png", result.bbox, "result.png")
+    print(f"位置: {result.bbox}")
+    draw_bbox("screenshot.png", result, "result.png")
 ```
 
 ### 设备控制
@@ -98,46 +151,17 @@ from uiautoagent import AndroidController, IOSController, SwipeDirection
 
 # 控制Android设备
 controller = AndroidController()
-controller.tap(500, 1000)  # 点击坐标
-controller.swipe_direction(SwipeDirection.UP)  # 向上滑动
-controller.input_text("hello")  # 输入文本
-controller.back()  # 返回
-
-# 控制iOS设备
-controller = IOSController()  # 自动检测USB设备
-# 或指定URL连接: IOSController(url="http://localhost:8100")
-# 或指定UDID: IOSController(udid="00008101-...")
 controller.tap(500, 1000)
 controller.swipe_direction(SwipeDirection.UP)
 controller.input_text("hello")
-controller.home()  # Home键
-```
+controller.back()
 
-### Agent 手动控制
-
-```python
-from uiautoagent import DeviceAgent, Action, ActionType, AgentConfig
-
-agent = DeviceAgent(
-    AndroidController(),
-    config=AgentConfig(max_steps=20, save_screenshots=True)
-)
-
-# 执行动作
-agent.step(Action(type=ActionType.TAP, thought="点击登录", target="登录按钮"))
-agent.step(Action(ActionType.WAIT, wait_ms=2000))
-agent.step(Action(type=ActionType.INPUT, text="username"))
-```
-
-### 任务记忆
-
-```python
-from uiautoagent import get_task_memory
-
-memory = get_task_memory()
-similar = memory.find_similar_tasks("修改昵称")
-for task in similar:
-    print(f"{task['task']} - {'成功' if task['success'] else '失败'}")
+# 控制iOS设备
+controller = IOSController()  # 自动检测USB设备
+controller.tap(500, 1000)
+controller.swipe_direction(SwipeDirection.UP)
+controller.input_text("hello")
+controller.home()
 ```
 
 ### 直接调用 AI
@@ -145,19 +169,17 @@ for task in similar:
 ```python
 from uiautoagent import Category, chat_completion
 
-# 使用 Category 枚举指定场景（推荐）
 response = chat_completion(
-    category=Category.TEXT,  # 文本处理场景
+    category=Category.TEXT,
     messages=[{"role": "user", "content": "总结这段文本"}],
     max_tokens=500,
 )
 content = response.choices[0].message.content
 
-# 不同场景会自动使用对应的模型
-decision_response = chat_completion(
-    category=Category.DECISION,  # 决策场景
+# 规划场景（需要图片）
+plan_response = chat_completion(
+    category=Category.PLAN,
     messages=[{"role": "user", "content": "分析这张图片"}],
-    # 注意：决策场景需要提供图片
 )
 ```
 
@@ -166,19 +188,11 @@ decision_response = chat_completion(
 ```python
 from uiautoagent import TokenTracker
 
-# Token 统计会自动记录
-tracker = TokenTracker()
-
-# 获取所有场景的统计
 stats = TokenTracker.get_stats()
 for category, stat in stats.items():
     print(f"{category}: {stat.total} tokens")
 
-# 获取总统计
 total = TokenTracker.get_total()
-print(f"总计: {total.total} tokens")
-
-# 计算费用
 input_cost, output_cost, total_cost = TokenTracker.calculate_cost(
     total.prompt, total.completion
 )
@@ -193,13 +207,11 @@ AI 视觉定位可以精准识别屏幕上的 UI 元素：
 **检测结果** - 查询"登录按钮"
 ![result.png](assets/result.png)
 
-检测到元素位置：`BBox(x=540, y=1320, width=240, height=120)`
-
 ## 要求
 
 - Python 3.10+
 - OpenAI 兼容的 API
-  - 视觉场景（`DECISION`、`DETECT`）需要支持 Vision 的模型
+  - 视觉场景（`PLAN`、`DETECT`）需要支持 Vision 的模型
   - 文本场景（`TEXT`）使用普通聊天模型即可
 - Android 需要 ADB
 - iOS 需要 WebDriverAgent 和 [wdapy](https://github.com/openatx/wdapy)，设备列表需要 `idevice_id`（libimobiledevice）或 `tidevice`
