@@ -49,7 +49,7 @@ SESSION_ID=my-session-123   # 默认自动生成 UUID
 
 推荐的配置
 
-```
+```sh
 # 方案1 (Openrouter)(推荐)
 BASE_URL=https://openrouter.ai/api/v1
 API_KEY=sk-...
@@ -64,7 +64,9 @@ MODEL_DETECT=z-ai/glm-4.6v
 # 下面两个模型稍微贵点
 # openai/gpt-5.4-mini $0.75/M input tokens $4.50/M output tokens
 # z.ai/glm-5v-turbo   $1.20/M input tokens $4/M output tokens
+```
 
+```sh
 # 方案2 (Doubao)
 BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 API_KEY=...
