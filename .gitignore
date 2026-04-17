@@ -226,5 +226,5 @@ task_*.json
 task_*.yaml
 
 # Task execution directories
-tasks/
+uiautoagent_tasks/
 devimages/

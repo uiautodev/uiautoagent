@@ -165,7 +165,7 @@ class AgentConfig(BaseModel):
     """Agent配置"""
 
     max_steps: int = 20  # 最大执行步数
-    tasks_dir: str = "tasks"  # 任务目录父目录
+    tasks_dir: str = "uiautoagent_tasks"  # 任务目录父目录
     save_screenshots: bool = True
     verbose: bool = True
 
@@ -434,11 +434,6 @@ class DeviceAgent:
         total_tokens = TokenTracker.get_total()
         stats_by_category = TokenTracker.get_stats()
 
-        # 计算费用
-        input_cost, output_cost, total_cost = TokenTracker.calculate_cost(
-            total_tokens.prompt, total_tokens.completion
-        )
-
         lines = [
             "=" * 60,
             f"任务执行摘要 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -450,7 +445,6 @@ class DeviceAgent:
             f"  输入Token: {total_tokens.prompt:,}",
             f"  输出Token: {total_tokens.completion:,}",
             f"  总计Token: {total_tokens.total:,}",
-            f"  总费用: ¥{total_cost:.4f} (输入:¥{input_cost:.4f}, 输出:¥{output_cost:.4f})",
         ]
 
         # 按分类显示token统计
@@ -465,12 +459,9 @@ class DeviceAgent:
             lines.append("")
             lines.append("按用途分类:")
             for category, stats in stats_by_category.items():
-                _, _, cat_total_cost = TokenTracker.calculate_cost(
-                    stats.prompt, stats.completion
-                )
                 name = category_names.get(category, category)
                 lines.append(
-                    f"  [{name}] {stats.total:,} tokens (¥{cat_total_cost:.4f}) - 输入:{stats.prompt:,}, 输出:{stats.completion:,}"
+                    f"  [{name}] {stats.total:,} tokens - 输入:{stats.prompt:,}, 输出:{stats.completion:,}"
                 )
 
         lines.extend(
@@ -503,11 +494,6 @@ class DeviceAgent:
         total_tokens = TokenTracker.get_total()
         stats_by_category = TokenTracker.get_stats()
 
-        # 计算费用
-        _, _, total_cost = TokenTracker.calculate_cost(
-            total_tokens.prompt, total_tokens.completion
-        )
-
         print("\n" + "=" * 50)
         print("📋 任务执行摘要")
         print("=" * 50)
@@ -519,7 +505,7 @@ class DeviceAgent:
         # 打印 token 使用统计
         if total_tokens.total > 0:
             print(
-                f"📊 Token: {total_tokens.total:,} (输入:{total_tokens.prompt:,}, 输出:{total_tokens.completion:,}) | 💰 费用: ¥{total_cost:.4f}"
+                f"📊 Token: {total_tokens.total:,} (输入:{total_tokens.prompt:,}, 输出:{total_tokens.completion:,})"
             )
 
             # 按分类详细统计
@@ -533,12 +519,9 @@ class DeviceAgent:
 
                 print("\n按用途分类:")
                 for category, stats in stats_by_category.items():
-                    _, _, cat_cost = TokenTracker.calculate_cost(
-                        stats.prompt, stats.completion
-                    )
                     name = category_names.get(category, category)
                     print(
-                        f"  [{name}] {stats.total:,} tokens (输入:{stats.prompt:,}, 输出:{stats.completion:,}) | ¥{cat_cost:.4f}"
+                        f"  [{name}] {stats.total:,} tokens (输入:{stats.prompt:,}, 输出:{stats.completion:,})"
                     )
         print("=" * 50)
 

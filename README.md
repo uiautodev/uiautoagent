@@ -106,7 +106,7 @@ uv run uiautoagent -m manual  # 手动控制
 
 ## 任务报告
 
-每次任务执行完成后，会在 `tasks/task_xxx/` 目录下生成：
+每次任务执行完成后，会在 `uiautoagent_tasks/task_xxx/` 目录下生成：
 
 | 文件 | 说明 |
 |------|------|
@@ -198,10 +198,7 @@ for category, stat in stats.items():
     print(f"{category}: {stat.total} tokens")
 
 total = TokenTracker.get_total()
-input_cost, output_cost, total_cost = TokenTracker.calculate_cost(
-    total.prompt, total.completion
-)
-print(f"费用: ¥{total_cost:.4f}")
+print(f"总计: {total.total} tokens")
 ```
 
 AI 视觉定位可以精准识别屏幕上的 UI 元素：

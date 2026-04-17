@@ -31,10 +31,6 @@ class Category(str, Enum):
     DEFAULT = "default"
 
 
-# Token价格配置（人民币/百万tokens）
-TOKEN_PRICE_INPUT = 4.8
-TOKEN_PRICE_OUTPUT = 24.0
-
 # 不同场景的模型配置
 _MODEL_CONFIG: dict[Category, str] = {
     Category.PLAN: os.getenv("MODEL_PLAN", ""),
@@ -145,25 +141,6 @@ class TokenTracker:
         """
         with _record_lock:
             return _last_record
-
-    @staticmethod
-    def calculate_cost(
-        prompt_tokens: int, completion_tokens: int
-    ) -> tuple[float, float, float]:
-        """
-        计算token费用
-
-        Args:
-            prompt_tokens: 输入token数量
-            completion_tokens: 输出token数量
-
-        Returns:
-            (输入费用, 输出费用, 总费用) 单位：人民币
-        """
-        input_cost = prompt_tokens * TOKEN_PRICE_INPUT / 1_000_000
-        output_cost = completion_tokens * TOKEN_PRICE_OUTPUT / 1_000_000
-        total_cost = input_cost + output_cost
-        return input_cost, output_cost, total_cost
 
     @staticmethod
     def reset():
