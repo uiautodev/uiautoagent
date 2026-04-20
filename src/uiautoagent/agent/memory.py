@@ -43,10 +43,10 @@ class TaskMemory:
     def _save_memories(self):
         """保存记忆到文件"""
         with self._lock:
-            self._write_memories_to_file()
+            self._write_memories_to_file_unlocked()
 
-    def _write_memories_to_file(self):
-        """将当前记忆写入文件（调用方需保证线程安全）"""
+    def _write_memories_to_file_unlocked(self):
+        """将当前记忆写入文件（调用方需在外部持有self._lock）"""
         self.memory_file.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "updated_at": datetime.now().isoformat(),
@@ -196,7 +196,7 @@ class TaskMemory:
 
         with self._lock:
             self._memories.append(memory)
-            self._write_memories_to_file()
+            self._write_memories_to_file_unlocked()
 
     def format_for_ai(self, similar_tasks: list[dict]) -> str:
         """将相似任务格式化为AI可读的参考信息"""

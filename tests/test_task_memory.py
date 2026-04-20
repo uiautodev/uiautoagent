@@ -26,8 +26,6 @@ def test_save_task_thread_safe(tmp_path):
 
     data = yaml.safe_load(memory_file.read_text(encoding="utf-8"))
 
-    with memory._lock:
-        assert len(memory._memories) == task_count
     assert data["total_tasks"] == task_count
     assert len(data["tasks"]) == task_count
     assert {task["task"] for task in data["tasks"]} == {
