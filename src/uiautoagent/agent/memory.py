@@ -46,7 +46,7 @@ class TaskMemory:
             self._write_memories_to_file_unlocked()
 
     def _write_memories_to_file_unlocked(self):
-        """将当前记忆写入文件（调用方需在外部持有self._lock）"""
+        """将当前记忆写入文件（注意：调用此方法前必须持有self._lock）"""
         self.memory_file.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "updated_at": datetime.now().isoformat(),
