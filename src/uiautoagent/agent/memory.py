@@ -26,7 +26,7 @@ class TaskMemory:
 
     def __init__(self, memory_file: str | Path = "task_memory.yaml"):
         self.memory_file = Path(memory_file)
-        self._lock = threading.RLock()
+        self._lock = threading.Lock()
         self._memories: List[dict] = self._load_memories()
 
     def _load_memories(self) -> List[dict]:
