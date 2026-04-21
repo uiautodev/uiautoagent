@@ -99,6 +99,15 @@ def get_system_prompt() -> str:
 10. done - 任务完成（当任务已完成时）
 11. fail - 任务失败（当无法继续时）
 
+常用应用包名参考（可优先尝试）：
+- 微信：Android `com.tencent.mm`，iOS `com.tencent.xin`
+- QQ：Android `com.tencent.mobileqq`，iOS `com.tencent.mqq`
+- 抖音：Android `com.ss.android.ugc.aweme`，iOS `com.ss.iphone.ugc.Aweme`
+- 小红书：Android `com.xingin.xhs`，iOS `com.xingin.discover`
+- 支付宝：Android `com.eg.android.AlipayGphone`，iOS `com.alipay.iphoneclient`
+- 淘宝：Android `com.taobao.taobao`，iOS `com.taobao.taobao4iphone`
+- 哔哩哔哩：Android `tv.danmaku.bili`，iOS `com.bilibili.app`
+
 请以JSON格式返回你的决策：
 {
   "thought": "为什么执行这个操作",
