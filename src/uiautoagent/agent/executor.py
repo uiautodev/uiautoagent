@@ -24,7 +24,7 @@ class PlanResponse(BaseModel):
     target: str | None = None
     text: str | None = None
     app_id: str | None = None
-    long_press_ms: int = Field(default=800, ge=0)
+    long_press_ms: int | None = Field(default=None, ge=0)
     direction: str | None = None
     swipe_start: str | None = None
     swipe_end: str | None = None
