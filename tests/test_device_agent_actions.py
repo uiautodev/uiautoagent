@@ -64,19 +64,21 @@ def test_long_press_by_position(tmp_path):
         config=AgentConfig(tasks_dir=str(tmp_path), save_screenshots=False, verbose=False),
     )
 
+    action = Action(
+        type=ActionType.LONG_PRESS,
+        thought="长按坐标",
+        position=(100, 200),
+        long_press_ms=1200,
+    )
     step = agent.step(
-        Action(
-            type=ActionType.LONG_PRESS,
-            thought="长按坐标",
-            position=(100, 200),
-            long_press_ms=1200,
-        ),
+        action,
         screenshot_path=tmp_path / "screen.png",
     )
 
     assert step.success is True
     assert ("swipe", 100, 200, 100, 200, 1200) in controller.calls
     assert step.observation == "已长按坐标 (100, 200) 1200ms"
+    assert str(action) == "长按: 坐标@(100, 200) (1200ms)"
 
 
 def test_long_press_by_target(tmp_path, mocker):

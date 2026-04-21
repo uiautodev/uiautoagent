@@ -267,7 +267,7 @@ def parse_action_from_plan(plan: PlanResponse) -> Action:
         kwargs["text"] = plan.text
     if plan.app_id:
         kwargs["app_id"] = plan.app_id
-    if action_type == ActionType.LONG_PRESS and plan.long_press_ms is not None:
+    if action_type == ActionType.LONG_PRESS and plan.long_press_ms != 800:
         kwargs["long_press_ms"] = plan.long_press_ms
     if plan.direction and plan.direction in ("up", "down", "left", "right"):
         kwargs["direction"] = plan.direction

@@ -146,7 +146,8 @@ class Action(BaseModel):
             return f"点击: {self.target}{pos}"
         elif self.type == ActionType.LONG_PRESS:
             pos = f"@{self.position}" if self.position else ""
-            return f"长按: {self.target}{pos} ({self.long_press_ms}ms)"
+            target = self.target or "坐标"
+            return f"长按: {target}{pos} ({self.long_press_ms}ms)"
         elif self.type == ActionType.INPUT:
             return f"输入: {self.text}"
         elif self.type == ActionType.SWIPE:
