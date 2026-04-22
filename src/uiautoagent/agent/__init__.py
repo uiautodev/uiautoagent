@@ -1,6 +1,6 @@
 """AI agent module for autonomous device automation."""
 
-from uiautoagent.agent.ai_utils import clarify_task, compress_markdown, summarize_task
+from uiautoagent.agent.ai_utils import clarify_task, summarize_task
 from uiautoagent.agent.device_agent import (
     Action,
     ActionDetail,
@@ -28,7 +28,6 @@ __all__ = [
     # AI utils
     "summarize_task",
     "clarify_task",
-    "compress_markdown",
     # Executor
     "TaskResult",
     "execute_ai_task",

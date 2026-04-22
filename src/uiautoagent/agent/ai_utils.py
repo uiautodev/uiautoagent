@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import re
-
 from uiautoagent.agent.device_agent import ActionType
 
 
 def summarize_task(task: str, history: list, success: bool) -> str:
     """
-    使用AI总结任务执行结果，生成Markdown格式的经验总结
+    记录任务执行结果，生成Markdown格式的执行日志
 
     Args:
         task: 任务描述
@@ -17,130 +15,38 @@ def summarize_task(task: str, history: list, success: bool) -> str:
         success: 是否成功
 
     Returns:
-        Markdown格式的任务总结
+        Markdown格式的任务执行记录
     """
-    try:
-        from uiautoagent.ai import Category, chat_completion
+    lines = [
+        f"# {'成功' if success else '失败'}",
+        f"**任务**: {task}",
+        f"**步数**: {len(history)}",
+    ]
 
-        # 构建操作历史摘要
-        steps_summary = []
-        for h in history:
-            status = "✅" if h.success else "❌"
-            action = h.action
-            if action.type == ActionType.TAP:
-                target = getattr(action.params, "target", None)
-                if target:
-                    steps_summary.append(f"{status} 点击: {target}")
-            elif action.type == ActionType.LONG_PRESS:
-                target = getattr(action.params, "target", None)
-                if target:
-                    steps_summary.append(f"{status} 长按: {target}")
-            elif action.type == ActionType.INPUT:
-                text = getattr(action.params, "text", None)
-                if text:
-                    steps_summary.append(f"{status} 输入: {text}")
-            elif action.type == ActionType.SWIPE:
-                direction = getattr(action.params, "direction", None)
-                swipe_start = getattr(action.params, "swipe_start", None)
-                swipe_end = getattr(action.params, "swipe_end", None)
-                if direction:
-                    steps_summary.append(f"{status} 滑动: {direction}")
-                elif swipe_start and swipe_end:
-                    steps_summary.append(f"{status} 滑动: {swipe_start} → {swipe_end}")
-                else:
-                    steps_summary.append(f"{status} 滑动")
-            elif action.type == ActionType.BACK:
-                steps_summary.append(f"{status} 返回")
-            elif action.type == ActionType.WAIT:
-                steps_summary.append(f"{status} 等待")
-            elif action.type == ActionType.APP_LAUNCH:
-                app_id = getattr(action.params, "app_id", None)
-                if app_id:
-                    steps_summary.append(f"{status} 启动应用: {app_id}")
-            elif action.type == ActionType.APP_STOP:
-                app_id = getattr(action.params, "app_id", None)
-                if app_id:
-                    steps_summary.append(f"{status} 停止应用: {app_id}")
-            elif action.type == ActionType.APP_REBOOT:
-                app_id = getattr(action.params, "app_id", None)
-                if app_id:
-                    steps_summary.append(f"{status} 重启应用: {app_id}")
+    # 获取最终结果（DONE 的 result 或 FAIL 的 thought）
+    if history:
+        last_action = history[-1].action
+        if success and last_action.type == ActionType.DONE:
+            from uiautoagent.agent.plan import DoneParams
 
-        steps_text = "\n".join(steps_summary)
+            assert isinstance(last_action.params, DoneParams)
+            if last_action.params.result:
+                lines.append(f"**结果**: {last_action.params.result}")
+        elif not success and last_action.type == ActionType.FAIL:
+            if last_action.thought:
+                lines.append(f"**原因**: {last_action.thought}")
 
-        prompt = f"""请分析以下任务执行历史，生成经验总结（Markdown格式）。
+    lines.append("\n## 执行日志")
 
-任务: {task}
-结果: {"成功" if success else "失败"}
+    # 收集每步的 log
+    for h in history:
+        status = "✅" if h.success else "❌"
+        if h.action.log:
+            lines.append(f"{status} {h.action.log}")
+        else:
+            lines.append(f"{status} {h.action.type}")
 
-执行步骤:
-{steps_text}
-
-请以Markdown格式返回经验总结，包含成功做法和错误尝试。
-
-成功任务示例：
-```markdown
-成功完成，共6步
-
-# 正确操作步骤
-
-1. 点击 设置
-2. 点击 个人资料
-3. 点击 昵称
-4. 输入 kitty
-5. 滑动 down
-6. 点击 保存
-
-# 错误尝试（请避免）
-
-- 点击"修改资料"按钮无效（此按钮无法修改昵称，应该点击"昵称"）
-- 向左滑动没找到目标（页面需要向下滑动才能看到昵称选项）
-```
-
-失败任务示例：
-```markdown
-任务失败，共尝试5步
-
-# 执行过的操作
-
-1. 点击 设置
-2. 点击 个人资料
-3. 点击 账号设置（无效，此按钮不存在）
-4. 向下滑动（没找到目标）
-
-# 失败原因
-
-- 找不到"账号设置"入口，可能需要先完成其他步骤
-- 向下滑动后仍未发现目标选项
-```
-
-要求：
-1. 按照示例格式生成Markdown
-2. 只返回Markdown内容，不要用代码块包裹
-3. 紧凑格式，列表项之间不要空行"""
-
-        response = chat_completion(
-            category=Category.TEXT,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "你是一个任务总结专家，擅长分析操作历史并提取关键信息。",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=1024,
-            temperature=0.0,
-        )
-
-        content = response.choices[0].message.content
-        if not content:
-            raise ValueError("AI返回空响应")
-
-        return compress_markdown(content)
-
-    except Exception as e:
-        print(f"⚠️  AI总结失败，不保存: {e}")
-        return ""
+    return "\n\n".join(lines)
 
 
 def clarify_task(task: str) -> str:
@@ -184,22 +90,3 @@ def clarify_task(task: str) -> str:
     except Exception as e:
         print(f"⚠️  任务澄清失败，使用原始描述: {e}")
         return task
-
-
-def compress_markdown(md: str) -> str:
-    """压缩 Markdown 内容，移除多余空行和代码块标记"""
-    # 移除代码块标记
-    if md.startswith("```"):
-        md = re.sub(r"^```[\w]*\n", "", md)  # 移除开头的```和可选的语言标记
-        md = re.sub(r"\n```\s*$", "", md)  # 移除结尾的```
-
-    # 多个空行 -> 一个
-    md = re.sub(r"\n{3,}", "\n\n", md)
-
-    # 列表之间的空行去掉
-    md = re.sub(r"^(\s*[-*+] .+)\n+(?=\s*[-*+] )", r"\1\n", md, flags=re.MULTILINE)
-
-    # 数字列表
-    md = re.sub(r"^(\s*\d+\. .+)\n+(?=\s*\d+\. )", r"\1\n", md, flags=re.MULTILINE)
-
-    return md.strip()

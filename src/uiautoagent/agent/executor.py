@@ -13,6 +13,7 @@ from uiautoagent.agent.ai_utils import summarize_task
 from uiautoagent.agent.memory import TaskMemory, get_task_memory
 from uiautoagent.agent.plan import (
     Action,
+    DoneParams,
     get_action_examples_prompt,
     parse_plan_response,
 )
@@ -250,10 +251,9 @@ def handle_task_status(
 
         result = None
         # 如果需要返回结果
-        return_result = getattr(action.params, "return_result", False)
-        result_value = getattr(action.params, "result", None)
-        if return_result and result_value:
-            result = result_value
+        assert isinstance(action.params, DoneParams)
+        if action.params.return_result and action.params.result:
+            result = action.params.result
             print("\n📋 任务结果:")
             print(f"   {result}")
             print(f"\n📸 当前截图: {agent.get_current_screenshot()}")

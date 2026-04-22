@@ -22,7 +22,6 @@ from uiautoagent.agent import (  # noqa: E402
 )
 from uiautoagent.agent.ai_utils import (  # noqa: E402
     clarify_task,
-    compress_markdown,
     summarize_task,
 )
 from uiautoagent.agent.executor import execute_ai_task, run_ai_task  # noqa: E402
@@ -56,7 +55,6 @@ __all__ = [
     "get_task_memory",
     "summarize_task",
     "clarify_task",
-    "compress_markdown",
     # Controller
     "DeviceController",
     "AndroidController",

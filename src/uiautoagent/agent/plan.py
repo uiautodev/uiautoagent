@@ -155,42 +155,40 @@ class Action(BaseModel):
     def __str__(self) -> str:
         """返回友好的字符串表示"""
         if self.type == ActionType.TAP:
-            target = getattr(self.params, "target", "")
-            return f"点击: {target}" if target else "点击"
+            assert isinstance(self.params, TapParams)
+            return f"点击: {self.params.target}"
         elif self.type == ActionType.LONG_PRESS:
-            target = getattr(self.params, "target", "")
-            ms = getattr(self.params, "long_press_ms", 800)
-            return f"长按: {target or '坐标'} ({ms}ms)"
+            assert isinstance(self.params, LongPressParams)
+            target = self.params.target or "坐标"
+            return f"长按: {target} ({self.params.long_press_ms}ms)"
         elif self.type == ActionType.INPUT:
-            text = getattr(self.params, "text", "")
-            return f"输入: {text}"
+            assert isinstance(self.params, InputParams)
+            return f"输入: {self.params.text}"
         elif self.type == ActionType.SWIPE:
-            if hasattr(self.params, "swipe_start") and hasattr(
-                self.params, "swipe_end"
-            ):
-                if self.params.swipe_start and self.params.swipe_end:
-                    return f"滑动: {self.params.swipe_start} → {self.params.swipe_end}"
-            if hasattr(self.params, "direction") and self.params.direction:
+            assert isinstance(self.params, SwipeParams)
+            if self.params.swipe_start and self.params.swipe_end:
+                return f"滑动: {self.params.swipe_start} → {self.params.swipe_end}"
+            if self.params.direction:
                 return f"滑动: {self.params.direction}"
             return "滑动"
         elif self.type == ActionType.BACK:
             return "返回"
         elif self.type == ActionType.WAIT:
-            ms = getattr(self.params, "wait_ms", 1000)
-            return f"等待 {ms}ms"
+            assert isinstance(self.params, WaitParams)
+            return f"等待 {self.params.wait_ms}ms"
         elif self.type == ActionType.DONE:
             return f"✅ 完成: {self.thought}" if self.thought else "✅ 完成"
         elif self.type == ActionType.FAIL:
             return f"❌ 失败: {self.thought}" if self.thought else "❌ 失败"
         elif self.type == ActionType.APP_LAUNCH:
-            app_id = getattr(self.params, "app_id", "")
-            return f"启动应用: {app_id}"
+            assert isinstance(self.params, AppIdParams)
+            return f"启动应用: {self.params.app_id}"
         elif self.type == ActionType.APP_STOP:
-            app_id = getattr(self.params, "app_id", "")
-            return f"停止应用: {app_id}"
+            assert isinstance(self.params, AppIdParams)
+            return f"停止应用: {self.params.app_id}"
         elif self.type == ActionType.APP_REBOOT:
-            app_id = getattr(self.params, "app_id", "")
-            return f"重启应用: {app_id}"
+            assert isinstance(self.params, AppIdParams)
+            return f"重启应用: {self.params.app_id}"
         return str(self.type)
 
 
