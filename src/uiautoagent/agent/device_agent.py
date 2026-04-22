@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -14,22 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from uiautoagent.controller.base import DeviceController, SwipeDirection
 from uiautoagent.types import TokenUsage
 from uiautoagent.detector import DetectionResult
-
-
-class ActionType(str, Enum):
-    """动作类型"""
-
-    TAP = "tap"  # 点击元素
-    LONG_PRESS = "long_press"  # 长按元素
-    INPUT = "input"  # 输入文本
-    SWIPE = "swipe"  # 滑动
-    BACK = "back"  # 返回
-    WAIT = "wait"  # 等待
-    DONE = "done"  # 任务完成
-    FAIL = "fail"  # 任务失败
-    APP_LAUNCH = "app_launch"  # 启动应用
-    APP_STOP = "app_stop"  # 停止应用
-    APP_REBOOT = "app_reboot"  # 重启应用
+from uiautoagent.agent.plan import Action, ActionType
 
 
 class ActionDetail(BaseModel):
@@ -116,57 +100,6 @@ class RecordingController(DeviceController):
     @staticmethod
     def list_devices() -> list[str]:
         return DeviceController.list_devices()
-
-
-class Action(BaseModel):
-    """执行的动作"""
-
-    model_config = ConfigDict(use_enum_values=True)
-
-    type: ActionType
-    thought: str  # 为什么要执行这个动作
-    log: str = ""  # 简洁描述做了什么操作
-    target: str | None = None  # 目标元素描述（tap用）
-    position: tuple[int, int] | None = None  # 具体坐标
-    text: str | None = None  # 输入的文本
-    app_id: str | None = None  # 应用包名/Bundle ID（launch_app/stop_app用）
-    long_press_ms: int = 800  # 长按时间（毫秒）
-    direction: SwipeDirection | None = None  # 滑动方向
-    swipe_start: str | None = None  # 滑动起始位置描述
-    swipe_end: str | None = None  # 滑动结束位置描述
-    wait_ms: int = 1000  # 等待时间
-    return_result: bool = False  # 是否返回当前屏幕的观察结果
-    result: str | None = None  # 任务返回的结果/答案
-
-    def __str__(self) -> str:
-        if self.type == ActionType.TAP:
-            pos = f"@{self.position}" if self.position else ""
-            return f"点击: {self.target}{pos}"
-        elif self.type == ActionType.LONG_PRESS:
-            pos = f"@{self.position}" if self.position else ""
-            target = self.target or "坐标"
-            return f"长按: {target}{pos} ({self.long_press_ms}ms)"
-        elif self.type == ActionType.INPUT:
-            return f"输入: {self.text}"
-        elif self.type == ActionType.SWIPE:
-            if self.swipe_start and self.swipe_end:
-                return f"滑动: {self.swipe_start} → {self.swipe_end}"
-            return f"滑动: {self.direction}"
-        elif self.type == ActionType.BACK:
-            return "返回"
-        elif self.type == ActionType.WAIT:
-            return f"等待 {self.wait_ms}ms"
-        elif self.type == ActionType.DONE:
-            return f"✅ 完成: {self.thought}" if self.thought else "✅ 完成"
-        elif self.type == ActionType.FAIL:
-            return f"❌ 失败: {self.thought}" if self.thought else "❌ 失败"
-        elif self.type == ActionType.APP_LAUNCH:
-            return f"启动应用: {self.app_id}"
-        elif self.type == ActionType.APP_STOP:
-            return f"停止应用: {self.app_id}"
-        elif self.type == ActionType.APP_REBOOT:
-            return f"重启应用: {self.app_id}"
-        return self.type
 
 
 class TaskStep(BaseModel):
@@ -398,53 +331,53 @@ class DeviceAgent:
         """执行动作并返回观察结果"""
         try:
             if action.type == ActionType.TAP:
-                if action.position:
-                    x, y = action.position
-                    self.controller.tap(x, y)
-                    return f"已点击坐标 ({x}, {y})"
-                elif action.target:
-                    result = self._detect_and_tap(screenshot_path, action.target)
+                target = getattr(action.params, "target", None)
+                if target:
+                    result = self._detect_and_tap(screenshot_path, target)
                     if result.found:
-                        return f"已点击: {result.description or action.target}"
-                    return f"未找到元素: {action.target}"
+                        return f"已点击: {result.description or target}"
+                    return f"未找到元素: {target}"
+                return "未提供点击目标"
 
             elif action.type == ActionType.LONG_PRESS:
-                if action.position:
-                    x, y = action.position
-                    self.controller.long_press(x, y, action.long_press_ms)
-                    return f"已长按坐标 ({x}, {y}) {action.long_press_ms}ms"
-                elif action.target:
+                target = getattr(action.params, "target", None)
+                long_press_ms = getattr(action.params, "long_press_ms", 800)
+                if target:
                     from uiautoagent.detector import detect_element
 
-                    result = detect_element(screenshot_path, action.target)
+                    result = detect_element(screenshot_path, target)
                     if not result.found or not result.bbox:
-                        return f"未找到元素: {action.target}"
+                        return f"未找到元素: {target}"
                     x, y = result.bbox.center
-                    self.controller.long_press(x, y, action.long_press_ms)
-                    return f"已长按: {result.description or action.target} ({action.long_press_ms}ms)"
-                return "未提供长按参数（坐标或目标元素）"
+                    self.controller.long_press(x, y, long_press_ms)
+                    return f"已长按: {result.description or target} ({long_press_ms}ms)"
+                return "未提供长按目标元素"
 
             elif action.type == ActionType.INPUT:
-                if action.text:
-                    self.controller.input_text(action.text)
-                    return f"已输入: {action.text}"
+                text = getattr(action.params, "text", None)
+                if text:
+                    self.controller.input_text(text)
+                    return f"已输入: {text}"
                 return "未提供输入文本"
 
             elif action.type == ActionType.SWIPE:
-                if action.swipe_start and action.swipe_end:
+                swipe_start = getattr(action.params, "swipe_start", None)
+                swipe_end = getattr(action.params, "swipe_end", None)
+                direction = getattr(action.params, "direction", None)
+                if swipe_start and swipe_end:
                     results = self._detect_and_swipe(
-                        screenshot_path, action.swipe_start, action.swipe_end
+                        screenshot_path, swipe_start, swipe_end
                     )
-                    start_r = results.get(action.swipe_start)
-                    end_r = results.get(action.swipe_end)
+                    start_r = results.get(swipe_start)
+                    end_r = results.get(swipe_end)
                     if not start_r or not start_r.found or not start_r.bbox:
-                        return f"未找到起始位置: {action.swipe_start}"
+                        return f"未找到起始位置: {swipe_start}"
                     if not end_r or not end_r.found or not end_r.bbox:
-                        return f"未找到结束位置: {action.swipe_end}"
-                    return f"已从 {start_r.description or action.swipe_start} 滑动到 {end_r.description or action.swipe_end}"
-                elif action.direction:
-                    self.controller.swipe_direction(action.direction)
-                    return f"已向{action.direction}滑动"
+                        return f"未找到结束位置: {swipe_end}"
+                    return f"已从 {start_r.description or swipe_start} 滑动到 {end_r.description or swipe_end}"
+                elif direction:
+                    self.controller.swipe_direction(direction)
+                    return f"已向{direction}滑动"
                 return "未提供滑动参数（方向或起止位置描述）"
 
             elif action.type == ActionType.BACK:
@@ -452,25 +385,29 @@ class DeviceAgent:
                 return "已点击返回键"
 
             elif action.type == ActionType.WAIT:
-                time.sleep(action.wait_ms / 1000)
-                return f"已等待 {action.wait_ms}ms"
+                wait_ms = getattr(action.params, "wait_ms", 1000)
+                time.sleep(wait_ms / 1000)
+                return f"已等待 {wait_ms}ms"
 
             elif action.type == ActionType.APP_LAUNCH:
-                if action.app_id:
-                    self.controller.app_launch(action.app_id)
-                    return f"已启动应用: {action.app_id}"
+                app_id = getattr(action.params, "app_id", None)
+                if app_id:
+                    self.controller.app_launch(app_id)
+                    return f"已启动应用: {app_id}"
                 return "未提供应用包名"
 
             elif action.type == ActionType.APP_STOP:
-                if action.app_id:
-                    self.controller.app_stop(action.app_id)
-                    return f"已停止应用: {action.app_id}"
+                app_id = getattr(action.params, "app_id", None)
+                if app_id:
+                    self.controller.app_stop(app_id)
+                    return f"已停止应用: {app_id}"
                 return "未提供应用包名"
 
             elif action.type == ActionType.APP_REBOOT:
-                if action.app_id:
-                    self.controller.app_reboot(action.app_id)
-                    return f"已重启应用: {action.app_id}"
+                app_id = getattr(action.params, "app_id", None)
+                if app_id:
+                    self.controller.app_reboot(app_id)
+                    return f"已重启应用: {app_id}"
                 return "未提供应用包名"
 
             elif action.type in (ActionType.DONE, ActionType.FAIL):

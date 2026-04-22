@@ -8,11 +8,11 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from uiautoagent import Category, chat_completion
-from uiautoagent.agent import AgentConfig, DeviceAgent, Action, ActionType
+from uiautoagent.agent import AgentConfig, DeviceAgent, ActionType
 from uiautoagent.agent.ai_utils import summarize_task
 from uiautoagent.agent.memory import TaskMemory, get_task_memory
 from uiautoagent.agent.plan import (
-    PlanResponse,
+    Action,
     get_action_examples_prompt,
     parse_plan_response,
 )
@@ -114,7 +114,11 @@ def get_system_prompt() -> str:
 
 **避免重复失败：**
 - 如果同样的操作（如点击某个元素、向某个方向滑动）一直失败，必须立即更换思路
-- 重复同样的无效操作是浪费步数，观察失败原因后必须调整策略"""
+- 重复同样的无效操作是浪费步数，观察失败原因后必须调整策略
+
+**输出要求**
+根据示列中的格式，输出你认为最合适的下一步操作。只需要输出JSON，不要任何额外文本。
+"""
 
 
 def build_history_summary(history: list) -> str:
@@ -184,7 +188,9 @@ def build_user_prompt_with_memory(
 
 ## 当前屏幕
 任务: {task}
-请参考上方相似历史任务的经验，分析当前屏幕并决定下一步操作："""
+请参考上方相似历史任务的经验，分析当前屏幕并决定下一步操作：
+JSON输出
+"""
 
 
 def encode_screenshot(screenshot_path: str | Path) -> str:
@@ -195,13 +201,11 @@ def encode_screenshot(screenshot_path: str | Path) -> str:
         return base64.b64encode(f.read()).decode()
 
 
-def call_ai_plan(
-    system_prompt: str, user_prompt: str, screenshot_b64: str
-) -> PlanResponse:
-    """调用AI规划API
+def get_ai_action(system_prompt: str, user_prompt: str, screenshot_b64: str) -> Action:
+    """调用AI获取下一步动作
 
     Returns:
-        PlanResponse 规划结果
+        Action AI规划的动作
     """
     response = chat_completion(
         category=Category.PLAN,
@@ -219,7 +223,7 @@ def call_ai_plan(
             },
         ],
         response_format={"type": "json_object"},
-        max_tokens=1024,
+        max_tokens=2048,
         temperature=0.0,
     )
 
@@ -230,116 +234,6 @@ def call_ai_plan(
     print(f"[AI思考] {plan_text[:200]}...")
 
     return parse_plan_response(plan_text)
-
-
-def parse_action_from_plan(plan: PlanResponse) -> Action:
-    """从AI规划解析出Action对象"""
-    # 使用 match/case 根据不同类型提取特定参数
-    match plan:
-        # Tap 操作 - 需要 target
-        case plan if plan.type == "tap":
-            return Action(
-                type=ActionType.TAP,
-                thought=plan.thought,
-                log=plan.log,
-                target=plan.target,
-            )
-
-        # LongPress 操作 - 需要 target，可选 long_press_ms
-        case plan if plan.type == "long_press":
-            return Action(
-                type=ActionType.LONG_PRESS,
-                thought=plan.thought,
-                log=plan.log,
-                target=plan.target,
-                long_press_ms=plan.long_press_ms or 800,
-            )
-
-        # Input 操作 - 需要 text
-        case plan if plan.type == "input":
-            return Action(
-                type=ActionType.INPUT,
-                thought=plan.thought,
-                log=plan.log,
-                text=plan.text,
-            )
-
-        # Swipe 操作 - direction 或 swipe_start/swipe_end
-        case plan if plan.type == "swipe":
-            kwargs = {
-                "type": ActionType.SWIPE,
-                "thought": plan.thought,
-                "log": plan.log,
-            }
-            if plan.direction:
-                kwargs["direction"] = plan.direction
-            if plan.swipe_start:
-                kwargs["swipe_start"] = plan.swipe_start
-            if plan.swipe_end:
-                kwargs["swipe_end"] = plan.swipe_end
-            return Action(**kwargs)
-
-        # Wait 操作 - 可选 wait_ms
-        case plan if plan.type == "wait":
-            return Action(
-                type=ActionType.WAIT,
-                thought=plan.thought,
-                log=plan.log,
-                wait_ms=plan.wait_ms,
-            )
-
-        # AppLaunch 操作 - 需要 app_id
-        case plan if plan.type == "app_launch":
-            return Action(
-                type=ActionType.APP_LAUNCH,
-                thought=plan.thought,
-                log=plan.log,
-                app_id=plan.app_id,
-            )
-
-        # AppStop 操作 - 需要 app_id
-        case plan if plan.type == "app_stop":
-            return Action(
-                type=ActionType.APP_STOP,
-                thought=plan.thought,
-                log=plan.log,
-                app_id=plan.app_id,
-            )
-
-        # AppReboot 操作 - 需要 app_id
-        case plan if plan.type == "app_reboot":
-            return Action(
-                type=ActionType.APP_REBOOT,
-                thought=plan.thought,
-                log=plan.log,
-                app_id=plan.app_id,
-            )
-
-        # Done 操作 - 可选 return_result 和 result
-        case plan if plan.type == "done":
-            return Action(
-                type=ActionType.DONE,
-                thought=plan.thought,
-                log=plan.log,
-                return_result=plan.return_result,
-                result=plan.result,
-            )
-
-        # Back 操作 - 无额外参数
-        case plan if plan.type == "back":
-            return Action(
-                type=ActionType.BACK,
-                thought=plan.thought,
-                log=plan.log,
-            )
-
-        # Fail 操作 - 无额外参数
-        case _:
-            return Action(
-                type=ActionType.FAIL,
-                thought=plan.thought,
-                log=plan.log,
-            )
 
 
 def handle_task_status(
@@ -356,8 +250,10 @@ def handle_task_status(
 
         result = None
         # 如果需要返回结果
-        if action.return_result and action.result:
-            result = action.result
+        return_result = getattr(action.params, "return_result", False)
+        result_value = getattr(action.params, "result", None)
+        if return_result and result_value:
+            result = result_value
             print("\n📋 任务结果:")
             print(f"   {result}")
             print(f"\n📸 当前截图: {agent.get_current_screenshot()}")
@@ -455,22 +351,21 @@ def execute_ai_task(
             tokens_before = TokenTracker.get_total()
             step_start = time.time()
 
-            plan = call_ai_plan(system_prompt, user_prompt, screenshot_b64)
-            action = parse_action_from_plan(plan)
+            action = get_ai_action(system_prompt, user_prompt, screenshot_b64)
 
             # 执行动作（复用已截好的图，避免重复截图）
             task_step = agent.step(
                 action, screenshot_path=screenshot_path, step_start=step_start
             )
 
-            # 计算本步总 token 消耗（plan + detect 等所有 AI 调用）
+            # 计算本步总 token 消耗（action + detect 等所有 AI 调用）
             tokens_after = TokenTracker.get_total()
             task_step.ai_tokens = TokenUsage(
                 prompt=tokens_after.prompt - tokens_before.prompt,
                 completion=tokens_after.completion - tokens_before.completion,
                 total=tokens_after.total - tokens_before.total,
             )
-            task_step.ai_response = plan.model_dump_json(exclude_none=True)
+            task_step.ai_response = action.model_dump_json(exclude_none=True)
             task_step.ai_system_prompt = system_prompt
             task_step.ai_user_prompt = user_prompt
 

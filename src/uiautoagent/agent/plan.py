@@ -1,53 +1,64 @@
-"""AI 规划响应模型 - 使用联合类型为每个 action type 定义特定参数"""
+"""AI 规划响应模型 - 统一结构，params 使用联合类型"""
 
+from enum import Enum
 from typing import Literal, Union
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, model_validator
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-class BasePlanAction(BaseModel):
-    """基础规划动作 - 所有类型共有的字段"""
+class ActionType(str, Enum):
+    """动作类型"""
 
-    thought: str = ""
-    log: str = ""
+    TAP = "tap"  # 点击元素
+    LONG_PRESS = "long_press"  # 长按元素
+    INPUT = "input"  # 输入文本
+    SWIPE = "swipe"  # 滑动
+    BACK = "back"  # 返回
+    WAIT = "wait"  # 等待
+    DONE = "done"  # 任务完成
+    FAIL = "fail"  # 任务失败
+    APP_LAUNCH = "app_launch"  # 启动应用
+    APP_STOP = "app_stop"  # 停止应用
+    APP_REBOOT = "app_reboot"  # 重启应用
 
 
-class TapPlanAction(BasePlanAction):
-    """点击操作"""
+# ========== 各种动作的 Params 类型 ==========
 
-    type: Literal["tap"] = "tap"
+
+class EmptyParams(BaseModel):
+    """空参数 - 用于 back、fail 等无额外参数的操作"""
+
+    pass
+
+
+class TapParams(BaseModel):
+    """点击操作参数"""
+
     target: str = Field(..., description="目标元素描述，如'搜索按钮'")
 
 
-class LongPressPlanAction(BasePlanAction):
-    """长按操作"""
+class LongPressParams(BaseModel):
+    """长按操作参数"""
 
-    type: Literal["long_press"] = "long_press"
     target: str = Field(..., description="目标元素描述")
-    long_press_ms: int | None = Field(
-        default=800, ge=0, description="长按毫秒数，默认800"
-    )
+    long_press_ms: int = Field(default=800, ge=0, description="长按毫秒数，默认800")
 
 
-class InputPlanAction(BasePlanAction):
-    """输入文本操作"""
+class InputParams(BaseModel):
+    """输入文本操作参数"""
 
-    type: Literal["input"] = "input"
     text: str = Field(..., description="要输入的文本内容")
 
 
-class SwipePlanAction(BasePlanAction):
-    """滑动操作"""
-
-    type: Literal["swipe"] = "swipe"
+class SwipeParams(BaseModel):
+    """滑动操作参数"""
 
     # 方式1: 按方向滑动
     direction: Literal["up", "down", "left", "right"] | None = Field(
         default=None, description="滑动方向（up/down/left/right）"
     )
-
     # 方式2: 按位置描述滑动
     swipe_start: str | None = Field(
         default=None, description="滑动起始位置描述，如'头像图标'"
@@ -57,81 +68,135 @@ class SwipePlanAction(BasePlanAction):
     )
 
 
-class BackPlanAction(BasePlanAction):
-    """返回操作"""
+class WaitParams(BaseModel):
+    """等待操作参数"""
 
-    type: Literal["back"] = "back"
-
-
-class WaitPlanAction(BasePlanAction):
-    """等待操作"""
-
-    type: Literal["wait"] = "wait"
     wait_ms: int = Field(default=1000, ge=0, description="等待毫秒数，默认1000")
 
 
-class AppLaunchPlanAction(BasePlanAction):
-    """启动应用操作"""
+class AppIdParams(BaseModel):
+    """应用ID参数"""
 
-    type: Literal["app_launch"] = "app_launch"
     app_id: str = Field(
         ...,
         description="应用包名（Android）或 Bundle ID（iOS），如 com.tencent.mm",
     )
 
 
-class AppStopPlanAction(BasePlanAction):
-    """停止应用操作"""
+class DoneParams(BaseModel):
+    """任务完成操作参数"""
 
-    type: Literal["app_stop"] = "app_stop"
-    app_id: str = Field(
-        ...,
-        description="应用包名（Android）或 Bundle ID（iOS）",
-    )
-
-
-class AppRebootPlanAction(BasePlanAction):
-    """重启应用操作"""
-
-    type: Literal["app_reboot"] = "app_reboot"
-    app_id: str = Field(
-        ...,
-        description="应用包名（Android）或 Bundle ID（iOS）",
-    )
-
-
-class DonePlanAction(BasePlanAction):
-    """任务完成操作"""
-
-    type: Literal["done"] = "done"
     return_result: bool = Field(default=False, description="是否返回观察结果")
     result: str | None = Field(default=None, description="任务返回的结果或答案")
 
 
-class FailPlanAction(BasePlanAction):
-    """任务失败操作"""
+# ========== 联合类型 ==========
 
-    type: Literal["fail"] = "fail"
-
-
-# 联合类型，包含所有可能的操作类型
-PlanAction = Union[
-    TapPlanAction,
-    LongPressPlanAction,
-    InputPlanAction,
-    SwipePlanAction,
-    BackPlanAction,
-    WaitPlanAction,
-    AppLaunchPlanAction,
-    AppStopPlanAction,
-    AppRebootPlanAction,
-    DonePlanAction,
-    FailPlanAction,
+ActionParams = Union[
+    EmptyParams,
+    TapParams,
+    LongPressParams,
+    InputParams,
+    SwipeParams,
+    WaitParams,
+    AppIdParams,
+    DoneParams,
 ]
 
 
-# 保持向后兼容的 PlanResponse 别名
-PlanResponse = PlanAction
+# ========== 统一的 PlanAction ==========
+
+# 定义 type 到 params 类型的映射
+_ACTION_TYPE_TO_PARAMS = {
+    ActionType.TAP: TapParams,
+    ActionType.LONG_PRESS: LongPressParams,
+    ActionType.INPUT: InputParams,
+    ActionType.SWIPE: SwipeParams,
+    ActionType.WAIT: WaitParams,
+    ActionType.APP_LAUNCH: AppIdParams,
+    ActionType.APP_STOP: AppIdParams,
+    ActionType.APP_REBOOT: AppIdParams,
+    ActionType.DONE: DoneParams,
+    ActionType.BACK: EmptyParams,
+    ActionType.FAIL: EmptyParams,
+}
+
+
+class Action(BaseModel):
+    """统一的动作模型 - 所有动作都有 type, thought, log, params 四个字段"""
+
+    type: ActionType
+    thought: str = ""
+    log: str = ""
+    params: ActionParams = Field(default_factory=EmptyParams)
+
+    model_config = {"validate_assignment": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_params_by_type(cls, data):
+        """根据 type 字段验证 params 的类型"""
+        if isinstance(data, dict):
+            action_type = data.get("type")
+            if action_type:
+                # 获取预期的 params 类
+                expected_params_cls = _ACTION_TYPE_TO_PARAMS.get(action_type)
+                if expected_params_cls:
+                    params_data = data.get("params", {})
+                    # 如果 params 不是 dict，保持原样
+                    if isinstance(params_data, dict):
+                        # 使用预期的 params 类来验证数据
+                        validated_params = expected_params_cls.model_validate(
+                            params_data
+                        )
+                        data["params"] = validated_params
+        return data
+
+    def __str__(self) -> str:
+        """返回友好的字符串表示"""
+        if self.type == ActionType.TAP:
+            target = getattr(self.params, "target", "")
+            return f"点击: {target}" if target else "点击"
+        elif self.type == ActionType.LONG_PRESS:
+            target = getattr(self.params, "target", "")
+            ms = getattr(self.params, "long_press_ms", 800)
+            return f"长按: {target or '坐标'} ({ms}ms)"
+        elif self.type == ActionType.INPUT:
+            text = getattr(self.params, "text", "")
+            return f"输入: {text}"
+        elif self.type == ActionType.SWIPE:
+            if hasattr(self.params, "swipe_start") and hasattr(
+                self.params, "swipe_end"
+            ):
+                if self.params.swipe_start and self.params.swipe_end:
+                    return f"滑动: {self.params.swipe_start} → {self.params.swipe_end}"
+            if hasattr(self.params, "direction") and self.params.direction:
+                return f"滑动: {self.params.direction}"
+            return "滑动"
+        elif self.type == ActionType.BACK:
+            return "返回"
+        elif self.type == ActionType.WAIT:
+            ms = getattr(self.params, "wait_ms", 1000)
+            return f"等待 {ms}ms"
+        elif self.type == ActionType.DONE:
+            return f"✅ 完成: {self.thought}" if self.thought else "✅ 完成"
+        elif self.type == ActionType.FAIL:
+            return f"❌ 失败: {self.thought}" if self.thought else "❌ 失败"
+        elif self.type == ActionType.APP_LAUNCH:
+            app_id = getattr(self.params, "app_id", "")
+            return f"启动应用: {app_id}"
+        elif self.type == ActionType.APP_STOP:
+            app_id = getattr(self.params, "app_id", "")
+            return f"停止应用: {app_id}"
+        elif self.type == ActionType.APP_REBOOT:
+            app_id = getattr(self.params, "app_id", "")
+            return f"重启应用: {app_id}"
+        return str(self.type)
+
+
+# 保持向后兼容的别名
+PlanAction = Action
+PlanResponse = Action
 
 
 def get_action_examples_prompt() -> str:
@@ -139,131 +204,94 @@ def get_action_examples_prompt() -> str:
 
     return """## 操作类型说明
 
-**所有操作都包含这三个必需字段：**
+**所有操作都包含这四个字段：**
 - `type`: 操作类型（如 "tap", "swipe" 等）
 - `thought`: 为什么执行这个操作
 - `log`: 简洁说明要做的事情
-
-每种操作还有自己特有的字段，下面按类型列出：
+- `params`: 操作参数（不同类型有不同参数）
 
 ---
 
 ### 1. tap - 点击元素
 
-```json
-{
-  "target": "搜索按钮"
-}
-```
+**params 字段：**
+- `target`: 目标元素描述，如"搜索按钮"
 
 ---
 
 ### 2. long_press - 长按元素
 
-```json
-{
-  "target": "消息内容",
-  "long_press_ms": 1000
-}
-```
-*`long_press_ms` 可选，默认800*
+**params 字段：**
+- `target`: 目标元素描述
+- `long_press_ms`: 长按毫秒数（可选，默认800）
 
 ---
 
 ### 3. input - 输入文本
 
-```json
-{
-  "text": "python"
-}
-```
+**params 字段：**
+- `text`: 要输入的文本内容
 
 ---
 
 ### 4. swipe - 滑动屏幕
 
 **方式1：按方向滑动**
-```json
-{
-  "direction": "up"
-}
-```
+- `direction`: "up" / "down" / "left" / "right"
 
 **方式2：按位置描述滑动**
-```json
-{
-  "swipe_start": "个人资料图标",
-  "swipe_end": "设置按钮"
-}
-```
+- `swipe_start`: 起始位置描述，如"个人资料图标"
+- `swipe_end`: 结束位置描述，如"设置按钮"
+
 *direction 和 swipe_start/swipe_end 二选一*
 
 ---
 
 ### 5. back - 返回上一页
 
-无额外字段
+**params 字段：** 无（空对象 `{}`）
 
 ---
 
 ### 6. wait - 等待
 
-```json
-{
-  "wait_ms": 2000
-}
-```
-*`wait_ms` 可选，默认1000*
+**params 字段：**
+- `wait_ms`: 等待毫秒数（可选，默认1000）
 
 ---
 
 ### 7. app_launch - 启动应用
 
-```json
-{
-  "app_id": "com.tencent.mm"
-}
-```
+**params 字段：**
+- `app_id`: 应用包名，如 `com.tencent.mm`
 
 ---
 
 ### 8. app_stop - 停止应用
 
-```json
-{
-  "app_id": "com.tencent.mm"
-}
-```
+**params 字段：**
+- `app_id`: 应用包名
 
 ---
 
 ### 9. app_reboot - 重启应用
 
-```json
-{
-  "app_id": "com.tencent.mm"
-}
-```
+**params 字段：**
+- `app_id`: 应用包名
 
 ---
 
 ### 10. done - 任务完成
 
-**普通完成：** 无额外字段
-
-**返回结果：**
-```json
-{
-  "return_result": true,
-  "result": "共有15个好友在线"
-}
-```
+**params 字段：**
+- `return_result`: 是否返回观察结果（可选，默认false）
+- `result`: 任务返回的结果或答案（当 return_result=true 时）
 
 ---
 
 ### 11. fail - 任务失败
 
-无额外字段
+**params 字段：** 无（空对象 `{}`）
 
 ---
 
@@ -275,13 +303,9 @@ def get_action_examples_prompt() -> str:
 """
 
 
-# TypeAdapter 用于解析 Union 类型
-_plan_adapter = TypeAdapter(PlanAction)
-
-
 def parse_plan_response(raw: str) -> PlanAction:
     """
-    解析 AI 返回的 JSON 为 PlanAction（Union 类型）
+    解析 AI 返回的 JSON 为 PlanAction
 
     使用 json_repair 自动处理 markdown 代码块和常见的 LLM 格式错误。
 
@@ -306,26 +330,8 @@ def parse_plan_response(raw: str) -> PlanAction:
             if not data:
                 raise ValueError("未找到有效的 JSON 内容")
             data = data[0]
-        return _plan_adapter.validate_python(data)
+        return PlanAction.model_validate(data)
     except (ValueError, Exception) as e:
         logger.warning(f"Failed to parse plan response: {e}")
         logger.warning(f"Extracted JSON: {raw[:200]}")
         raise ValueError(f"无法解析 AI 返回的 JSON: {e}") from e
-
-
-def get_plan_attr(plan: PlanAction, attr: str, default=None):
-    """
-    安全地获取 PlanAction 的属性值
-
-    由于 PlanAction 是 Union 类型，不同类型有不同的属性，
-    这个函数可以安全地获取属性，不存在时返回默认值
-
-    Args:
-        plan: PlanAction 实例
-        attr: 属性名
-        default: 默认值
-
-    Returns:
-        属性值或默认值
-    """
-    return getattr(plan, attr, default)

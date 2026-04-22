@@ -27,24 +27,44 @@ def summarize_task(task: str, history: list, success: bool) -> str:
         for h in history:
             status = "✅" if h.success else "❌"
             action = h.action
-            if action.type == ActionType.TAP and action.target:
-                steps_summary.append(f"{status} 点击: {action.target}")
-            elif action.type == ActionType.LONG_PRESS and action.target:
-                steps_summary.append(f"{status} 长按: {action.target}")
-            elif action.type == ActionType.INPUT and action.text:
-                steps_summary.append(f"{status} 输入: {action.text}")
+            if action.type == ActionType.TAP:
+                target = getattr(action.params, "target", None)
+                if target:
+                    steps_summary.append(f"{status} 点击: {target}")
+            elif action.type == ActionType.LONG_PRESS:
+                target = getattr(action.params, "target", None)
+                if target:
+                    steps_summary.append(f"{status} 长按: {target}")
+            elif action.type == ActionType.INPUT:
+                text = getattr(action.params, "text", None)
+                if text:
+                    steps_summary.append(f"{status} 输入: {text}")
             elif action.type == ActionType.SWIPE:
-                steps_summary.append(f"{status} 滑动: {action.direction}")
+                direction = getattr(action.params, "direction", None)
+                swipe_start = getattr(action.params, "swipe_start", None)
+                swipe_end = getattr(action.params, "swipe_end", None)
+                if direction:
+                    steps_summary.append(f"{status} 滑动: {direction}")
+                elif swipe_start and swipe_end:
+                    steps_summary.append(f"{status} 滑动: {swipe_start} → {swipe_end}")
+                else:
+                    steps_summary.append(f"{status} 滑动")
             elif action.type == ActionType.BACK:
                 steps_summary.append(f"{status} 返回")
             elif action.type == ActionType.WAIT:
                 steps_summary.append(f"{status} 等待")
-            elif action.type == ActionType.APP_LAUNCH and action.app_id:
-                steps_summary.append(f"{status} 启动应用: {action.app_id}")
-            elif action.type == ActionType.APP_STOP and action.app_id:
-                steps_summary.append(f"{status} 停止应用: {action.app_id}")
-            elif action.type == ActionType.APP_REBOOT and action.app_id:
-                steps_summary.append(f"{status} 重启应用: {action.app_id}")
+            elif action.type == ActionType.APP_LAUNCH:
+                app_id = getattr(action.params, "app_id", None)
+                if app_id:
+                    steps_summary.append(f"{status} 启动应用: {app_id}")
+            elif action.type == ActionType.APP_STOP:
+                app_id = getattr(action.params, "app_id", None)
+                if app_id:
+                    steps_summary.append(f"{status} 停止应用: {app_id}")
+            elif action.type == ActionType.APP_REBOOT:
+                app_id = getattr(action.params, "app_id", None)
+                if app_id:
+                    steps_summary.append(f"{status} 重启应用: {app_id}")
 
         steps_text = "\n".join(steps_summary)
 

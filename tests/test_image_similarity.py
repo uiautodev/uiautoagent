@@ -98,7 +98,7 @@ def test_action_type_str_handling():
     action_dict = {
         "type": "tap",
         "thought": "点击按钮",
-        "target": "搜索按钮",
+        "params": {"target": "搜索按钮"},
     }
     action = Action(**action_dict)
 
