@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 from uiautoagent.agent import Action, ActionType, AgentConfig, DeviceAgent
+from uiautoagent.agent.plan import TapParams, WaitParams, InputParams
 from uiautoagent.agent.executor import run_ai_task
 from uiautoagent.ai import check_all_models_available
 from uiautoagent.controller import AndroidController, IOSController
@@ -53,22 +54,22 @@ def demo_manual_control(platform: str = "android", serial: str | None = None):
         Action(
             type=ActionType.TAP,
             thought="打开应用",
-            target="微信图标",
+            params=TapParams(target="微信图标"),
         ),
         Action(
             type=ActionType.WAIT,
             thought="等待应用启动",
-            wait_ms=2000,
+            params=WaitParams(wait_ms=2000),
         ),
         Action(
             type=ActionType.TAP,
             thought="点击搜索框",
-            target="搜索框",
+            params=TapParams(target="搜索框"),
         ),
         Action(
             type=ActionType.INPUT,
             thought="输入搜索关键词",
-            text="test",
+            params=InputParams(text="test"),
         ),
         Action(
             type=ActionType.DONE,
@@ -137,7 +138,7 @@ def demo_find_and_click(
         Action(
             type=ActionType.TAP,
             thought=f"查找并点击{target}",
-            target=target,
+            params=TapParams(target=target),
         )
     )
 

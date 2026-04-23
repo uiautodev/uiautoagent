@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from uiautoagent.agent.device_agent import ActionType
+from uiautoagent.agent.device_agent import ActionType, TaskStep
 
 
 def summarize_task(
-    task: str, history: list, success: bool, original_task: str | None = None
+    task: str, history: list[TaskStep], success: bool, original_task: str | None = None
 ) -> str:
     """
-    记录任务执行结果，生成Markdown格式的执行日志
+    记录任务执行结果，生成纯文本格式的执行日志
 
     Args:
         task: 任务描述（澄清后）
@@ -18,40 +18,26 @@ def summarize_task(
         original_task: 用户原始输入的任务描述
 
     Returns:
-        Markdown格式的任务执行记录
+        纯文本格式的任务执行记录
     """
-    lines = [
-        f"# {'成功' if success else '失败'}",
-        f"**任务**: {task}",
-    ]
-    if original_task and original_task != task:
-        lines.append(f"**原始输入**: {original_task}")
-    lines.append(f"**步数**: {len(history)}")
+    lines = []
+    steps = []
+    for h in history[:-1]:  # 最后一步通常是 DONE 或 FAIL，不计入步骤列表
+        step_status = "成功" if h.success else "失败"
+        action_desc = h.action.log or h.action.type
+        steps.append(f"- {action_desc} [{step_status}]")
+    last_action = history[-1].action
+    if success and last_action.type == ActionType.DONE:
+        from uiautoagent.agent.plan import DoneParams
 
-    # 获取最终结果（DONE 的 result 或 FAIL 的 thought）
-    if history:
-        last_action = history[-1].action
-        if success and last_action.type == ActionType.DONE:
-            from uiautoagent.agent.plan import DoneParams
-
-            assert isinstance(last_action.params, DoneParams)
-            if last_action.params.result:
-                lines.append(f"**结果**: {last_action.params.result}")
-        elif not success and last_action.type == ActionType.FAIL:
-            if last_action.thought:
-                lines.append(f"**原因**: {last_action.thought}")
-
-    lines.append("\n## 执行日志")
-
-    # 收集每步的 log
-    for h in history:
-        status = "✅" if h.success else "❌"
-        if h.action.log:
-            lines.append(f"{status} {h.action.log}")
-        else:
-            lines.append(f"{status} {h.action.type}")
-
-    return "\n\n".join(lines)
+        assert isinstance(last_action.params, DoneParams)
+        if last_action.params.result:
+            lines.append(f"结果: {last_action.params.result}")
+    elif not success and last_action.type == ActionType.FAIL:
+        if last_action.thought:
+            lines.append(f"失败原因: {last_action.thought}")
+    lines.append("步骤:\n" + "\n".join(steps))
+    return "\n".join(lines)
 
 
 def clarify_task(task: str) -> str:

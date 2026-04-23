@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from uiautoagent.controller.base import DeviceController, SwipeDirection
 from uiautoagent.types import TokenUsage
-from uiautoagent.detector import DetectionResult
+from uiautoagent.detector import BBox
 from uiautoagent.agent.plan import (
     Action,
     ActionType,
@@ -297,46 +297,40 @@ class DeviceAgent:
     def _log_step(self, step: TaskStep):
         """打印步骤日志"""
         status = "✅" if step.success else "❌"
-        self._log(f"\n[步骤 {step.step_number}] {status} 动作: {step.action}")
+        self._log(f"\n[步骤 {step.step_number}]")
         if step.action.thought:
             self._log(f"思考: {step.action.thought}")
+        self._log(f"动作: {step.action} {status}")
         self._log(f"观察: {step.observation}")
         if step.elapsed:
             self._log(f"耗时: {step.elapsed:.2f}s")
 
-    def _detect_and_tap(self, screenshot_path: Path, target: str) -> DetectionResult:
-        """检测并点击元素，返回检测结果"""
-        from uiautoagent.detector import detect_element
+    def _normalized_bbox_to_actual(
+        self, bbox: list[int], screenshot_path: Path
+    ) -> BBox:
+        """将1000x1000归一化坐标转换为实际截图坐标"""
+        from PIL import Image
 
-        result = detect_element(screenshot_path, target)
-        if result.found and result.bbox:
-            self.controller.tap_bbox(result.bbox)
-        return result
+        img = Image.open(screenshot_path)
+        w, h = img.size
+        x1, y1, x2, y2 = bbox
+        return BBox(
+            x1=max(0, int(x1 * w / 1000)),
+            y1=max(0, int(y1 * h / 1000)),
+            x2=min(w, int(x2 * w / 1000)),
+            y2=min(h, int(y2 * h / 1000)),
+        )
 
-    def _detect_and_swipe(
-        self, screenshot_path: Path, start: str, end: str
-    ) -> dict[str, DetectionResult]:
-        """检测起始和结束位置并执行滑动，返回检测结果"""
-        from uiautoagent.detector import detect_elements
+    def _normalized_xy_to_actual(
+        self, xy: tuple[int, int], screenshot_path: Path
+    ) -> tuple[int, int]:
+        """将1000x1000归一化坐标转换为实际截图坐标"""
+        from PIL import Image
 
-        results = detect_elements(screenshot_path, [start, end])
-
-        start_result = results.get(start)
-        end_result = results.get(end)
-
-        if (
-            start_result
-            and start_result.found
-            and start_result.bbox
-            and end_result
-            and end_result.found
-            and end_result.bbox
-        ):
-            x1, y1 = start_result.bbox.center
-            x2, y2 = end_result.bbox.center
-            self.controller.swipe(x1, y1, x2, y2)
-
-        return results
+        img = Image.open(screenshot_path)
+        w, h = img.size
+        x, y = xy
+        return int(x * w / 1000), int(y * h / 1000)
 
     def _execute_action(self, action: Action, screenshot_path: Path) -> str:
         """执行动作并返回观察结果"""
@@ -344,23 +338,26 @@ class DeviceAgent:
             if action.type == ActionType.TAP:
                 assert isinstance(action.params, TapParams)
                 target = action.params.target
-                result = self._detect_and_tap(screenshot_path, target)
-                if result.found:
-                    return f"已点击: {result.description or target}"
-                return f"未找到元素: {target}"
+                if not action.params.bbox:
+                    return f"未提供点击坐标: {target}"
+                actual_bbox = self._normalized_bbox_to_actual(
+                    action.params.bbox, screenshot_path
+                )
+                self.controller.tap_bbox(actual_bbox)
+                return f"已点击: {target}"
 
             elif action.type == ActionType.LONG_PRESS:
                 assert isinstance(action.params, LongPressParams)
                 target = action.params.target
                 long_press_ms = action.params.long_press_ms
-                from uiautoagent.detector import detect_element
-
-                result = detect_element(screenshot_path, target)
-                if not result.found or not result.bbox:
-                    return f"未找到元素: {target}"
-                x, y = result.bbox.center
+                if not action.params.bbox:
+                    return f"未提供长按坐标: {target}"
+                actual_bbox = self._normalized_bbox_to_actual(
+                    action.params.bbox, screenshot_path
+                )
+                x, y = actual_bbox.center
                 self.controller.long_press(x, y, long_press_ms)
-                return f"已长按: {result.description or target} ({long_press_ms}ms)"
+                return f"已长按: {target} ({long_press_ms}ms)"
 
             elif action.type == ActionType.INPUT:
                 assert isinstance(action.params, InputParams)
@@ -370,23 +367,19 @@ class DeviceAgent:
 
             elif action.type == ActionType.SWIPE:
                 assert isinstance(action.params, SwipeParams)
-                if action.params.swipe_start and action.params.swipe_end:
-                    results = self._detect_and_swipe(
-                        screenshot_path,
-                        action.params.swipe_start,
-                        action.params.swipe_end,
+                if action.params.swipe_start_xy and action.params.swipe_end_xy:
+                    x1, y1 = self._normalized_xy_to_actual(
+                        action.params.swipe_start_xy, screenshot_path
                     )
-                    start_r = results.get(action.params.swipe_start)
-                    end_r = results.get(action.params.swipe_end)
-                    if not start_r or not start_r.found or not start_r.bbox:
-                        return f"未找到起始位置: {action.params.swipe_start}"
-                    if not end_r or not end_r.found or not end_r.bbox:
-                        return f"未找到结束位置: {action.params.swipe_end}"
-                    return f"已从 {start_r.description or action.params.swipe_start} 滑动到 {end_r.description or action.params.swipe_end}"
+                    x2, y2 = self._normalized_xy_to_actual(
+                        action.params.swipe_end_xy, screenshot_path
+                    )
+                    self.controller.swipe(x1, y1, x2, y2)
+                    return f"已滑动: ({x1},{y1}) -> ({x2},{y2})"
                 elif action.params.direction:
                     self.controller.swipe_direction(action.params.direction)
                     return f"已向{action.params.direction}滑动"
-                return "未提供滑动参数（方向或起止位置描述）"
+                return "未提供滑动参数（方向或坐标）"
 
             elif action.type == ActionType.BACK:
                 self.controller.back()

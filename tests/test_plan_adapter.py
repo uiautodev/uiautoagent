@@ -1,11 +1,11 @@
-"""测试 PlanAction 的解析和验证"""
+"""测试 Action 的解析和验证"""
 
 import pytest
 from pydantic import ValidationError
 
 from uiautoagent.agent.plan import (
     parse_plan_response,
-    PlanAction,
+    Action,
     ActionType,
     TapParams,
     LongPressParams,
@@ -18,8 +18,8 @@ from uiautoagent.agent.plan import (
 )
 
 
-class TestPlanActionValidate:
-    """测试 PlanAction 的解析和验证"""
+class TestActionValidate:
+    """测试 Action 的解析和验证"""
 
     def test_validate_tap_action(self):
         """测试解析 tap 操作"""
@@ -29,10 +29,24 @@ class TestPlanActionValidate:
             "log": "点击搜索",
             "params": {"target": "搜索按钮"},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert result.type == ActionType.TAP
         assert isinstance(result.params, TapParams)
         assert result.params.target == "搜索按钮"
+
+    def test_validate_tap_action_with_bbox(self):
+        """测试解析带 bbox 的 tap 操作"""
+        data = {
+            "type": "tap",
+            "thought": "点击搜索按钮",
+            "log": "点击搜索",
+            "params": {"target": "搜索按钮", "bbox": [100, 200, 300, 250]},
+        }
+        result = Action.model_validate(data)
+        assert result.type == ActionType.TAP
+        assert isinstance(result.params, TapParams)
+        assert result.params.target == "搜索按钮"
+        assert result.params.bbox == [100, 200, 300, 250]
 
     def test_validate_long_press_action(self):
         """测试解析 long_press 操作"""
@@ -45,11 +59,28 @@ class TestPlanActionValidate:
                 "long_press_ms": 1000,
             },
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert result.type == ActionType.LONG_PRESS
         assert isinstance(result.params, LongPressParams)
         assert result.params.target == "消息内容"
         assert result.params.long_press_ms == 1000
+
+    def test_validate_long_press_action_with_bbox(self):
+        """测试解析带 bbox 的 long_press 操作"""
+        data = {
+            "type": "long_press",
+            "thought": "长按消息",
+            "log": "长按",
+            "params": {
+                "target": "消息内容",
+                "long_press_ms": 1000,
+                "bbox": [50, 100, 200, 150],
+            },
+        }
+        result = Action.model_validate(data)
+        assert result.type == ActionType.LONG_PRESS
+        assert isinstance(result.params, LongPressParams)
+        assert result.params.bbox == [50, 100, 200, 150]
 
     def test_validate_long_press_with_default_ms(self):
         """测试 long_press 使用默认时长"""
@@ -57,7 +88,7 @@ class TestPlanActionValidate:
             "type": "long_press",
             "params": {"target": "消息"},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert isinstance(result.params, LongPressParams)
         assert result.params.long_press_ms == 800  # 默认值
 
@@ -69,7 +100,7 @@ class TestPlanActionValidate:
             "log": "输入",
             "params": {"text": "python"},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert result.type == ActionType.INPUT
         assert isinstance(result.params, InputParams)
         assert result.params.text == "python"
@@ -82,25 +113,28 @@ class TestPlanActionValidate:
             "log": "上滑",
             "params": {"direction": "up"},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert result.type == ActionType.SWIPE
         assert isinstance(result.params, SwipeParams)
         assert result.params.direction == "up"
-        assert result.params.swipe_start is None
-        assert result.params.swipe_end is None
+        assert result.params.swipe_start_xy is None
+        assert result.params.swipe_end_xy is None
 
-    def test_validate_swipe_with_positions(self):
-        """测试解析 swipe 操作（位置）"""
+    def test_validate_swipe_with_xy(self):
+        """测试解析 swipe 操作（坐标）"""
         data = {
             "type": "swipe",
             "thought": "滑动",
             "log": "滑动",
-            "params": {"swipe_start": "个人资料", "swipe_end": "设置"},
+            "params": {
+                "swipe_start_xy": [100, 200],
+                "swipe_end_xy": [300, 400],
+            },
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert isinstance(result.params, SwipeParams)
-        assert result.params.swipe_start == "个人资料"
-        assert result.params.swipe_end == "设置"
+        assert result.params.swipe_start_xy == (100, 200)
+        assert result.params.swipe_end_xy == (300, 400)
         assert result.params.direction is None
 
     def test_validate_back_action(self):
@@ -111,7 +145,7 @@ class TestPlanActionValidate:
             "log": "返回",
             "params": {},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert result.type == ActionType.BACK
         assert isinstance(result.params, EmptyParams)
 
@@ -123,7 +157,7 @@ class TestPlanActionValidate:
             "log": "等待",
             "params": {"wait_ms": 2000},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert result.type == ActionType.WAIT
         assert isinstance(result.params, WaitParams)
         assert result.params.wait_ms == 2000
@@ -134,7 +168,7 @@ class TestPlanActionValidate:
             "type": "wait",
             "params": {},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert isinstance(result.params, WaitParams)
         assert result.params.wait_ms == 1000  # 默认值
 
@@ -146,7 +180,7 @@ class TestPlanActionValidate:
             "log": "启动",
             "params": {"app_id": "com.tencent.mm"},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert result.type == ActionType.APP_LAUNCH
         assert isinstance(result.params, AppIdParams)
         assert result.params.app_id == "com.tencent.mm"
@@ -157,7 +191,7 @@ class TestPlanActionValidate:
             "type": "app_stop",
             "params": {"app_id": "com.tencent.mm"},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert result.type == ActionType.APP_STOP
 
     def test_validate_app_reboot_action(self):
@@ -168,7 +202,8 @@ class TestPlanActionValidate:
             "log": "重启",
             "params": {"app_id": "com.tencent.mm"},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
+        assert isinstance(result.params, AppIdParams)
         assert result.type == ActionType.APP_REBOOT
         assert result.params.app_id == "com.tencent.mm"
 
@@ -180,7 +215,7 @@ class TestPlanActionValidate:
             "log": "完成",
             "params": {},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert result.type == ActionType.DONE
         assert isinstance(result.params, DoneParams)
         assert result.params.return_result is False
@@ -193,7 +228,7 @@ class TestPlanActionValidate:
             "log": "完成",
             "params": {"return_result": True, "result": "任务完成，共找到15个好友"},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert isinstance(result.params, DoneParams)
         assert result.params.return_result is True
         assert result.params.result == "任务完成，共找到15个好友"
@@ -206,7 +241,7 @@ class TestPlanActionValidate:
             "log": "失败",
             "params": {},
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         assert result.type == ActionType.FAIL
         assert isinstance(result.params, EmptyParams)
 
@@ -219,7 +254,7 @@ class TestPlanActionValidate:
             "params": {},
         }
         with pytest.raises(ValidationError):
-            PlanAction.model_validate(data)
+            Action.model_validate(data)
 
     def test_validate_invalid_direction(self):
         """测试无效的 direction 值"""
@@ -230,7 +265,7 @@ class TestPlanActionValidate:
             },
         }
         with pytest.raises(ValidationError):
-            PlanAction.model_validate(data)
+            Action.model_validate(data)
 
     def test_validate_invalid_type(self):
         """测试无效的 type 值"""
@@ -239,7 +274,7 @@ class TestPlanActionValidate:
             "params": {},
         }
         with pytest.raises(ValidationError):
-            PlanAction.model_validate(data)
+            Action.model_validate(data)
 
     def test_validate_extra_fields_ignored(self):
         """测试额外字段被忽略（pydantic 默认行为）"""
@@ -248,7 +283,7 @@ class TestPlanActionValidate:
             "params": {"target": "按钮"},
             "extra_field": "应该被忽略",  # 额外字段
         }
-        result = PlanAction.model_validate(data)
+        result = Action.model_validate(data)
         # 额外字段应该被忽略，不会出现在结果中
         assert not hasattr(result, "extra_field")
 
@@ -261,7 +296,7 @@ class TestPlanActionValidate:
             },
         }
         with pytest.raises(ValidationError):
-            PlanAction.model_validate(data)
+            Action.model_validate(data)
 
     def test_validate_min_long_press_ms(self):
         """测试 long_press_ms 最小值约束"""
@@ -273,7 +308,7 @@ class TestPlanActionValidate:
             },
         }
         with pytest.raises(ValidationError):
-            PlanAction.model_validate(data)
+            Action.model_validate(data)
 
 
 class TestParsePlanResponse:
@@ -283,7 +318,7 @@ class TestParsePlanResponse:
         """测试解析单个 JSON"""
         raw = '{"type": "tap", "thought": "test", "log": "test", "params": {"target": "按钮"}}'
         result = parse_plan_response(raw)
-        assert isinstance(result, PlanAction)
+        assert isinstance(result, Action)
         assert result.type == ActionType.TAP
         assert result.params.target == "按钮"
 
@@ -297,14 +332,14 @@ class TestParsePlanResponse:
         }
         ```"""
         result = parse_plan_response(raw)
-        assert isinstance(result, PlanAction)
+        assert isinstance(result, Action)
         assert result.params.target == "按钮"
 
     def test_parse_json_array(self):
         """测试解析 JSON 数组（取第一个）"""
         raw = '[{"type": "tap", "params": {"target": "按钮"}}, {"type": "back", "params": {}}]'
         result = parse_plan_response(raw)
-        assert isinstance(result, PlanAction)
+        assert isinstance(result, Action)
         assert result.type == ActionType.TAP
 
     def test_parse_empty_string(self):
