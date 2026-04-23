@@ -264,7 +264,9 @@ def handle_task_status(
             print(f"\n📸 当前截图: {agent.get_current_screenshot()}")
 
         # 先保存任务记忆（会调用summarize，产生token）
-        summary = summarize_task(task, agent.history, success=True)
+        summary = summarize_task(
+            task, agent.history, success=True, original_task=original_task
+        )
         task_memory.save_task(
             task,
             agent.history,
@@ -284,7 +286,9 @@ def handle_task_status(
         print(f"\n❌ AI认为任务无法完成: {action.thought}")
 
         # 先保存任务记忆（会调用summarize，产生token）
-        summary = summarize_task(task, agent.history, success=False)
+        summary = summarize_task(
+            task, agent.history, success=False, original_task=original_task
+        )
         task_memory.save_task(
             task,
             agent.history,

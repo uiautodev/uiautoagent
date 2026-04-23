@@ -5,14 +5,17 @@ from __future__ import annotations
 from uiautoagent.agent.device_agent import ActionType
 
 
-def summarize_task(task: str, history: list, success: bool) -> str:
+def summarize_task(
+    task: str, history: list, success: bool, original_task: str | None = None
+) -> str:
     """
     记录任务执行结果，生成Markdown格式的执行日志
 
     Args:
-        task: 任务描述
+        task: 任务描述（澄清后）
         history: 执行历史
         success: 是否成功
+        original_task: 用户原始输入的任务描述
 
     Returns:
         Markdown格式的任务执行记录
@@ -20,8 +23,10 @@ def summarize_task(task: str, history: list, success: bool) -> str:
     lines = [
         f"# {'成功' if success else '失败'}",
         f"**任务**: {task}",
-        f"**步数**: {len(history)}",
     ]
+    if original_task and original_task != task:
+        lines.append(f"**原始输入**: {original_task}")
+    lines.append(f"**步数**: {len(history)}")
 
     # 获取最终结果（DONE 的 result 或 FAIL 的 thought）
     if history:
