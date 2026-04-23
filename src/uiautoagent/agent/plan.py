@@ -28,54 +28,82 @@ class ActionType(str, Enum):
 
 
 class EmptyParams(BaseModel):
-    """空参数 - 用于 back、fail 等无额外参数的操作"""
+    """空参数"""
 
     pass
 
 
 class TapParams(BaseModel):
-    """点击操作参数"""
+    """点击元素"""
 
     target: str = Field(..., description="目标元素描述，如'搜索按钮'")
+    bbox: list[int] | None = Field(
+        default=None,
+        description="目标元素的边界框坐标 [x1, y1, x2, y2]，基于1000x1000归一化坐标系。提供后可跳过元素检测直接点击",
+    )
 
 
 class LongPressParams(BaseModel):
-    """长按操作参数"""
+    """长按元素"""
 
     target: str = Field(..., description="目标元素描述")
     long_press_ms: int = Field(default=800, ge=0, description="长按毫秒数，默认800")
+    bbox: list[int] | None = Field(
+        default=None,
+        description="目标元素的边界框坐标 [x1, y1, x2, y2]，基于1000x1000归一化坐标系。提供后可跳过元素检测直接长按",
+    )
 
 
 class InputParams(BaseModel):
-    """输入文本操作参数"""
+    """输入文本"""
 
     text: str = Field(..., description="要输入的文本内容")
 
 
 class SwipeParams(BaseModel):
-    """滑动操作参数"""
+    """滑动屏幕
 
-    # 方式1: 按方向滑动
+    方式1：按方向滑动
+    direction: "up" / "down" / "left" / "right"
+
+    方式2：按坐标滑动
+    swipe_start_xy: [x, y] 起始坐标
+    swipe_end_xy: [x, y] 结束坐标
+
+    direction 和 swipe_start_xy/swipe_end_xy 二选一
+    """
+
     direction: Literal["up", "down", "left", "right"] | None = Field(
         default=None, description="滑动方向（up/down/left/right）"
     )
-    # 方式2: 按位置描述滑动
-    swipe_start: str | None = Field(
-        default=None, description="滑动起始位置描述，如'头像图标'"
+    swipe_start_xy: tuple[int, int] | None = Field(
+        default=None,
+        description="滑动起始坐标 [x, y]，基于1000x1000归一化坐标系",
     )
-    swipe_end: str | None = Field(
-        default=None, description="滑动结束位置描述，如'设置按钮'"
+    swipe_end_xy: tuple[int, int] | None = Field(
+        default=None,
+        description="滑动结束坐标 [x, y]，基于1000x1000归一化坐标系",
     )
 
 
 class WaitParams(BaseModel):
-    """等待操作参数"""
+    """等待"""
 
     wait_ms: int = Field(default=1000, ge=0, description="等待毫秒数，默认1000")
 
 
 class AppIdParams(BaseModel):
-    """应用ID参数"""
+    """启动/停止/重启应用
+
+    常用包名参考：
+    - 微信：Android com.tencent.mm，iOS com.tencent.xin
+    - QQ：Android com.tencent.mobileqq，iOS com.tencent.mqq
+    - 抖音：Android com.ss.android.ugc.aweme，iOS com.ss.iphone.ugc.Aweme
+    - 小红书：Android com.xingin.xhs，iOS com.xingin.discover
+    - 支付宝：Android com.eg.android.AlipayGphone，iOS com.alipay.iphoneclient
+    - 淘宝：Android com.taobao.taobao，iOS com.taobao.taobao4iphone
+    - 哔哩哔哩：Android tv.danmaku.bili，iOS com.bilibili.app
+    """
 
     app_id: str = Field(
         ...,
@@ -84,7 +112,7 @@ class AppIdParams(BaseModel):
 
 
 class DoneParams(BaseModel):
-    """任务完成操作参数"""
+    """任务完成"""
 
     return_result: bool = Field(default=False, description="是否返回观察结果")
     result: str | None = Field(default=None, description="任务返回的结果或答案")
@@ -115,7 +143,7 @@ ActionParams = Union[
 ]
 
 
-# ========== 统一的 PlanAction ==========
+# ========== Action ==========
 
 # 定义 type 到 params 类型的映射
 _ACTION_TYPE_TO_PARAMS = {
@@ -177,8 +205,10 @@ class Action(BaseModel):
             return f"输入: {self.params.text}"
         elif self.type == ActionType.SWIPE:
             assert isinstance(self.params, SwipeParams)
-            if self.params.swipe_start and self.params.swipe_end:
-                return f"滑动: {self.params.swipe_start} → {self.params.swipe_end}"
+            if self.params.swipe_start_xy and self.params.swipe_end_xy:
+                return (
+                    f"滑动: {self.params.swipe_start_xy} -> {self.params.swipe_end_xy}"
+                )
             if self.params.direction:
                 return f"滑动: {self.params.direction}"
             return "滑动"
@@ -203,14 +233,30 @@ class Action(BaseModel):
         return str(self.type)
 
 
-# 保持向后兼容的别名
-PlanAction = Action
-PlanResponse = Action
+class HistoryEntry(BaseModel):
+    """历史步骤条目 - 传递给AI的上下文信息"""
+
+    step_number: int = Field(..., description="步骤编号")
+    action: Action = Field(..., description="执行的动作")
+    observation: str = Field(default="", description="执行后的观察结果")
+    success: bool = Field(..., description="是否执行成功")
+    image_similarity: float | None = Field(
+        default=None, description="与上一步截图的相似度"
+    )
 
 
 def _generate_action_doc(params_cls: type[BaseModel]) -> str:
     """从 Params 模型定义生成单个操作的 params 文档"""
     lines = []
+    # 包含完整 docstring（多行时作为说明文字）
+    full_doc = (params_cls.__doc__ or "").strip()
+    doc_lines = full_doc.split("\n")
+    if len(doc_lines) > 1:
+        # 多行 docstring：第一行是标题（已在 title 中），其余作为说明
+        extra = "\n".join(line.strip() for line in doc_lines[1:] if line.strip())
+        if extra:
+            lines.append(extra)
+
     required_fields = []
     optional_fields = []
 
@@ -223,31 +269,15 @@ def _generate_action_doc(params_cls: type[BaseModel]) -> str:
             optional_fields.append((name, desc, default))
 
     if required_fields or optional_fields:
-        lines.append("**params 字段：**")
+        lines.append("params 字段：")
         for name, desc in required_fields:
-            lines.append(f"- `{name}`: {desc}")
+            lines.append(f"- {name}: {desc}")
         for name, desc, default in optional_fields:
-            lines.append(f"- `{name}`: {desc}（可选，默认{default}）")
+            lines.append(f"- {name}: {desc}（可选，默认{default}）")
     else:
-        lines.append("**params 字段：** 无（空对象 `{}`）")
+        lines.append("params 字段：无")
 
     return "\n".join(lines)
-
-
-# 操作类型的中文标题
-_ACTION_TITLES: dict[ActionType, str] = {
-    ActionType.TAP: "tap - 点击元素",
-    ActionType.LONG_PRESS: "long_press - 长按元素",
-    ActionType.INPUT: "input - 输入文本",
-    ActionType.SWIPE: "swipe - 滑动屏幕",
-    ActionType.BACK: "back - 返回上一页",
-    ActionType.WAIT: "wait - 等待",
-    ActionType.APP_LAUNCH: "app_launch - 启动应用",
-    ActionType.APP_STOP: "app_stop - 停止应用",
-    ActionType.APP_REBOOT: "app_reboot - 重启应用",
-    ActionType.DONE: "done - 任务完成",
-    ActionType.FAIL: "fail - 任务失败",
-}
 
 
 def get_action_examples_prompt() -> str:
@@ -256,46 +286,33 @@ def get_action_examples_prompt() -> str:
     sections = []
     for i, action_type in enumerate(ActionType, 1):
         params_cls = _ACTION_TYPE_TO_PARAMS[action_type]
-        title = _ACTION_TITLES.get(action_type, action_type.value)
+        docstring = (params_cls.__doc__ or "").strip().split("\n")[0]
+        title = f"{action_type.value} - {docstring}"
         doc = _generate_action_doc(params_cls)
-        if action_type == ActionType.SWIPE:
-            doc = (
-                "**方式1：按方向滑动**\n"
-                '- `direction`: "up" / "down" / "left" / "right"\n\n'
-                "**方式2：按位置描述滑动**\n"
-                "- `swipe_start`: 起始位置描述\n"
-                "- `swipe_end`: 结束位置描述\n\n"
-                "*direction 和 swipe_start/swipe_end 二选一*\n\n" + doc
-            )
-        sections.append(f"### {i}. {title}\n\n{doc}")
+        sections.append(f"{i}. {title}\n{doc}")
 
-    body = "\n\n---\n\n".join(sections)
+    body = "\n\n".join(sections)
 
-    return f"""## 操作类型说明
+    return f"""操作类型说明
 
-**所有操作都包含这四个字段：**
-- `type`: 操作类型（如 "tap", "swipe" 等）
-- `thought`: 为什么执行这个操作
-- `log`: 简洁说明要做的事情
-- `params`: 操作参数（不同类型有不同参数）
-
----
+所有操作都包含这四个字段：
+- type: 操作类型（如 "tap", "swipe" 等）
+- thought: 为什么执行这个操作
+- log: 简洁说明要做的事情
+- params: 操作参数（不同类型有不同参数）
 
 {body}
 
----
-
-## 使用说明
-
-1. **只包含必需字段**：每个操作只需要包含它特有的字段
-2. **省略默认值**：如 `long_press_ms` 默认800，`wait_ms` 默认1000，无需指定
-3. **input 前置**：输入前需要先用 tap 点击输入框
+使用说明：
+1. 只包含必需字段，每个操作只需要包含它特有的字段
+2. 省略默认值（如 long_press_ms 默认800，wait_ms 默认1000）
+3. input 前置：输入前需要先用 tap 点击输入框
 """
 
 
-def parse_plan_response(raw: str) -> PlanAction:
+def parse_plan_response(raw: str) -> Action:
     """
-    解析 AI 返回的 JSON 为 PlanAction
+    解析 AI 返回的 JSON 为 Action
 
     使用 json_repair 自动处理 markdown 代码块和常见的 LLM 格式错误。
 
@@ -303,7 +320,7 @@ def parse_plan_response(raw: str) -> PlanAction:
         raw: JSON 字符串（可能被 markdown 代码块包裹）
 
     Returns:
-        解析后的 PlanAction 实例
+        解析后的 Action 实例
 
     Raises:
         ValueError: 解析失败时
@@ -320,7 +337,7 @@ def parse_plan_response(raw: str) -> PlanAction:
             if not data:
                 raise ValueError("未找到有效的 JSON 内容")
             data = data[0]
-        return PlanAction.model_validate(data)
+        return Action.model_validate(data)
     except (ValueError, Exception) as e:
         logger.warning(f"Failed to parse plan response: {e}")
         logger.warning(f"Extracted JSON: {raw[:200]}")

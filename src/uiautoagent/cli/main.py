@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 from uiautoagent.agent import Action, ActionType, AgentConfig, DeviceAgent
+from uiautoagent.agent.plan import TapParams, WaitParams, InputParams
 from uiautoagent.agent.executor import run_ai_task
 from uiautoagent.ai import check_all_models_available
 from uiautoagent.controller import AndroidController, IOSController
@@ -53,22 +54,22 @@ def demo_manual_control(platform: str = "android", serial: str | None = None):
         Action(
             type=ActionType.TAP,
             thought="打开应用",
-            target="微信图标",
+            params=TapParams(target="微信图标"),
         ),
         Action(
             type=ActionType.WAIT,
             thought="等待应用启动",
-            wait_ms=2000,
+            params=WaitParams(wait_ms=2000),
         ),
         Action(
             type=ActionType.TAP,
             thought="点击搜索框",
-            target="搜索框",
+            params=TapParams(target="搜索框"),
         ),
         Action(
             type=ActionType.INPUT,
             thought="输入搜索关键词",
-            text="test",
+            params=InputParams(text="test"),
         ),
         Action(
             type=ActionType.DONE,
@@ -132,13 +133,35 @@ def demo_find_and_click(
         controller = AndroidController(devices[0])
     agent = DeviceAgent(controller)
 
-    # 查找并点击元素
+    # 先截图，再用 detect_element 检测目标元素
+    screenshot_path = agent.get_current_screenshot()
+    from uiautoagent.detector import detect_element
+
+    result = detect_element(screenshot_path, target)
+    if not result.found or not result.bbox:
+        print(f"❌ 未找到目标元素: {target}")
+        agent.save_history()
+        return
+
+    # 将实际像素 bbox 转为 1000x1000 归一化坐标
+    from PIL import Image
+
+    img = Image.open(screenshot_path)
+    w, h = img.size
+    norm_bbox = [
+        int(result.bbox.x1 * 1000 / w),
+        int(result.bbox.y1 * 1000 / h),
+        int(result.bbox.x2 * 1000 / w),
+        int(result.bbox.y2 * 1000 / h),
+    ]
+
     agent.step(
         Action(
             type=ActionType.TAP,
             thought=f"查找并点击{target}",
-            target=target,
-        )
+            params=TapParams(target=target, bbox=norm_bbox),
+        ),
+        screenshot_path=screenshot_path,
     )
 
     agent.save_history()

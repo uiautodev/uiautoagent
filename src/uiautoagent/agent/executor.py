@@ -9,11 +9,12 @@ from pydantic import BaseModel, ConfigDict
 
 from uiautoagent import Category, chat_completion
 from uiautoagent.agent import AgentConfig, DeviceAgent, ActionType
-from uiautoagent.agent.ai_utils import summarize_task
+from uiautoagent.agent.ai_utils import compress_markdown, summarize_task
 from uiautoagent.agent.memory import TaskMemory, get_task_memory
 from uiautoagent.agent.plan import (
     Action,
     DoneParams,
+    HistoryEntry,
     TaskProposal,
     get_action_examples_prompt,
     parse_plan_response,
@@ -65,99 +66,54 @@ class TaskResult(BaseModel):
 def get_system_prompt() -> str:
     """获取系统提示词"""
     examples = get_action_examples_prompt()
-    return f"""你是一个手机操作专家。用户会给你一个任务和当前手机屏幕截图，你需要分析屏幕并决定下一步操作。
+    return f"""你是一个手机操作专家。根据任务和截图，输出下一步操作的JSON。
 
-## 利用历史经验
-<historical_tasks>标签内的内容是相似历史任务的执行步骤参考，请参考这些成功经验：
-- 优先尝试历史任务中成功的操作模式
-- 如果历史任务显示某个元素描述有效，使用相同的描述
-- 注意历史任务中的关键步骤顺序
-- 标签外的内容是当前任务，不要被历史任务干扰
-
-## 可用操作类型及示例
-
+## 可用操作
 {examples}
 
-## 常用包名（参考）
+## 坐标规则（必须遵守）
+- tap/long_press: 必须输出bbox [x1,y1,x2,y2]（1000x1000归一化坐标系，左上角+右下角）
+- swipe位置模式: 必须输出swipe_start_xy [x,y] + swipe_end_xy [x,y]（中心点坐标）
+- 坐标必须紧贴目标元素边界，不要随意估算
 
-- 微信：Android `com.tencent.mm`，iOS `com.tencent.xin`
-- QQ：Android `com.tencent.mobileqq`，iOS `com.tencent.mqq`
-- 抖音：Android `com.ss.android.ugc.aweme`，iOS `com.ss.iphone.ugc.Aweme`
-- 小红书：Android `com.xingin.xhs`，iOS `com.xingin.discover`
-- 支付宝：Android `com.eg.android.AlipayGphone`，iOS `com.alipay.iphoneclient`
-- 淘宝：Android `com.taobao.taobao`，iOS `com.taobao.taobao4iphone`
-- 哔哩哔哩：Android `tv.danmaku.bili`，iOS `com.bilibili.app`
+## 输出格式
+只输出JSON，不要任何额外文本。字段只包含当前操作类型所需的，不要有空值。
 
-## 重要说明
-
-**字段使用规则：**
-- 只包含你使用的操作类型所需的字段，不要包含空字符串或null值
-- 每种操作类型只需要必需的字段，参考上面的示例
-- swipe操作可以选择direction或swipe_start+swipe_end，不要同时提供
-- 当任务需要返回观察结果时，done操作必须包含return_result和result字段
-
-**注意事项：**
-- 优先参考历史任务的成功步骤
-- 分析屏幕时要仔细，确保能找到目标元素
-- 如果任务需要操作特定应用，优先使用app_launch启动该应用，确保从正确的界面开始
-- 如果找不到元素，可以尝试滑动或返回
-- 任务完成后使用done
-- 无法继续时使用fail
-- input类型操作前需要先tap对应的输入框
-- 如果任务要求返回信息（如"查看好友发了什么消息"），done时必须设置return_result:true并在result中描述结果
-
-**界面相似度参考：**
-- 历史步骤中会标注界面变化情况（[界面几乎无变化]、[界面明显变化]等）
-- 如果点击/滑动后界面几乎无变化，说明操作可能未生效，需要：
-  - 检查是否点到了正确的位置（尝试更精确的描述）
-  - 考虑增加等待时间（界面响应可能有延迟）
-  - 尝试其他操作方式（如用swipe_direction代替点击特定位置）
-- 如果界面有明显变化，说明操作生效，可以继续下一步
-
-**避免重复失败：**
-- 如果同样的操作（如点击某个元素、向某个方向滑动）一直失败，必须立即更换思路
-- 重复同样的无效操作是浪费步数，观察失败原因后必须调整策略
-
-**输出要求**
-根据示列中的格式，输出你认为最合适的下一步操作。只需要输出JSON，不要任何额外文本。
+## 决策原则
+- 参考历史任务中的成功经验，但不要被失败步骤干扰
+- 优先用app_launch启动目标应用，确保从正确界面开始
+- 找不到元素时尝试滑动或返回，不要重复相同操作
+- input前必须先tap输入框
+- 任务完成用done，需要返回结果时设置return_result:true
+- 界面无变化说明操作未生效，换一种方式重试
 """
 
 
-def build_history_summary(history: list) -> str:
+def build_history_summary(history: list[HistoryEntry]) -> str:
     """构建历史摘要字符串"""
     if not history:
         return "（这是第一步，无历史记录）"
-
     lines = []
     for h in history:
-        status = "✅" if h["success"] else "❌"
-        action = h["action"]
-
-        # 构建动作详情
-        parts = []
-        if action.get("log"):
-            parts.append(f"操作: {action['log']}")
-        elif action.get("thought"):
-            parts.append(f"思考: {action['thought']}")
-
-        details = ", ".join(parts)
-
-        # 添加相似度信息（如果有）
-        similarity_info = ""
-        if h.get("image_similarity") is not None:
-            sim = h["image_similarity"]
+        action = h.action
+        step_lines = [f"- step_number: {h.step_number}"]
+        if action.log:
+            step_lines.append(f"  log: {action.log}")
+        if action.thought:
+            step_lines.append(f"  thought: {action.thought}")
+        step_lines.append(f"  result: {'成功' if h.success else '失败'}")
+        if h.image_similarity is not None:
+            sim = h.image_similarity
             if sim > 0.95:
-                similarity_info = " [界面几乎无变化，操作可能未生效]"
+                step_lines.append("  similarity: 界面几乎无变化")
             elif sim > 0.85:
-                similarity_info = " [界面轻微变化]"
+                step_lines.append("  similarity: 界面轻微变化")
             elif sim > 0.7:
-                similarity_info = " [界面明显变化]"
+                step_lines.append("  similarity: 界面明显变化")
             else:
-                similarity_info = " [界面大幅变化]"
-
-        lines.append(f"- [步骤{h['step']}] {status} {details}{similarity_info}")
-
-    return "\n".join(lines)
+                step_lines.append("  similarity: 界面大幅变化")
+        lines.append("\n".join(step_lines))
+    return "\n\n".join(lines)
 
 
 def build_user_prompt_with_memory(
@@ -189,9 +145,7 @@ def build_user_prompt_with_memory(
 {history_summary}
 
 ## 当前屏幕
-任务: {task}
-请参考上方相似历史任务的经验，分析当前屏幕并决定下一步操作：
-JSON输出
+请分析截图，任务是「{task}」，输出下一步操作的JSON。tap/long_press必须包含bbox坐标，swipe位置模式必须包含swipe_start_xy/swipe_end_xy坐标。
 """
 
 
@@ -367,6 +321,7 @@ def execute_ai_task(
             memory_reference,
             user_context=user_context,
         )
+        user_prompt = compress_markdown(user_prompt)
 
         # 调用AI决策
         try:
@@ -419,11 +374,18 @@ def execute_ai_task(
     agent.save_history()
     agent.print_summary()
 
-    # 保存未完成任务记忆
+    # 保存未完成任务记忆（含summary）
+    summary = summarize_task(
+        proposal.clarified_task,
+        agent.history,
+        success=False,
+        original_task=proposal.original_task,
+    )
     task_memory.save_task(
         proposal.clarified_task,
         agent.history,
         success=False,
+        summary=summary,
         original_task=proposal.original_task,
     )
 

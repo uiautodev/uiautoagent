@@ -76,9 +76,9 @@ def annotate_screenshot(
     if detail.swipe_start and detail.swipe_end:
         x1, y1 = detail.swipe_start
         x2, y2 = detail.swipe_end
-        _draw_arrow(draw, x1, y1, x2, y2, color="green", width=4)
-        draw.text((x1 + 10, y1 - 25), f"({x1}, {y1})", fill="green")
-        draw.text((x2 + 10, y2 + 5), f"({x2}, {y2})", fill="green")
+        _draw_arrow(draw, x1, y1, x2, y2, color="red", width=4)
+        draw.text((x1 + 10, y1 - 25), f"({x1}, {y1})", fill="red")
+        draw.text((x2 + 10, y2 + 5), f"({x2}, {y2})", fill="red")
 
     if detail.swipe_direction:
         cx, cy = img.width // 2, img.height // 2
@@ -90,10 +90,8 @@ def annotate_screenshot(
         }
         if detail.swipe_direction in dirs:
             sx1, sy1, sx2, sy2 = dirs[detail.swipe_direction]
-            _draw_arrow(draw, sx1, sy1, sx2, sy2, color="green", width=4)
-            draw.text(
-                (cx - 40, cy - 40), f"SWIPE {detail.swipe_direction}", fill="green"
-            )
+            _draw_arrow(draw, sx1, sy1, sx2, sy2, color="red", width=4)
+            draw.text((cx - 40, cy - 40), f"SWIPE {detail.swipe_direction}", fill="red")
 
     img.save(output_path)
     return output_path
@@ -151,6 +149,25 @@ def generate_html_report(
             <span style="color:#333;">{html.escape(task)}</span>
         </div>"""
 
+    # 任务结果（最后一步的 result）
+    result_html = ""
+    if steps:
+        last_step = steps[-1]
+        if last_step.action.type in ("done", "fail"):
+            from uiautoagent.agent.plan import DoneParams
+
+            params = last_step.action.params
+            if isinstance(params, DoneParams) and params.result:
+                result_html = f"""<div style="background:#e8f5e9; border-radius:8px; padding:15px; margin:10px auto; max-width:800px; text-align:center;">
+                    <span style="color:#2e7d32; font-weight:bold; font-size:14px;">📋 任务结果：</span>
+                    <span style="color:#333;">{html.escape(params.result)}</span>
+                </div>"""
+            elif last_step.action.thought:
+                result_html = f"""<div style="background:#fff3e0; border-radius:8px; padding:15px; margin:10px auto; max-width:800px; text-align:center;">
+                    <span style="color:#e65100; font-weight:bold; font-size:14px;">📋 状态：</span>
+                    <span style="color:#333;">{html.escape(last_step.action.thought)}</span>
+                </div>"""
+
     # 生成标注截图
     annotated_images: dict[int, str] = {}
     for step in steps:
@@ -182,6 +199,20 @@ def generate_html_report(
             if step.action.thought
             else ""
         )
+        similarity_html = ""
+        if step.image_similarity is not None:
+            sim = step.image_similarity
+            if sim > 0.95:
+                sim_label = "界面几乎无变化"
+            elif sim > 0.85:
+                sim_label = "界面轻微变化"
+            elif sim > 0.7:
+                sim_label = "界面明显变化"
+            else:
+                sim_label = "界面大幅变化"
+            similarity_html = (
+                f'<p class="detail">📷 相似度: {sim:.2%} ({sim_label})</p>'
+            )
         detail_html = ""
         if step.action_detail:
             d = step.action_detail
@@ -287,6 +318,7 @@ def generate_html_report(
                 <div class="step-info">
                     {thought_html}
                     <p class="observation">👁️ {html.escape(step.observation)}</p>
+                    {similarity_html}
                     {detail_html}
                     {ai_html}
                     {ai_response_html}
@@ -345,6 +377,7 @@ def generate_html_report(
     <h1>任务执行报告</h1>
     <p style="text-align:center; color:#999; margin-bottom:20px;">{now}</p>
     {task_html}
+    {result_html}
     <div class="summary">
         <div class="summary-item"><div class="num">{len(steps)}</div><div class="label">总步骤</div></div>
         <div class="summary-item"><div class="num" style="color:#4caf50">{success_count}</div><div class="label">成功</div></div>

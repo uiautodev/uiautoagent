@@ -5,7 +5,6 @@ from pathlib import Path
 from uiautoagent.agent.device_agent import Action, ActionType, AgentConfig, DeviceAgent
 from uiautoagent.agent.plan import LongPressParams, AppIdParams
 from uiautoagent.controller.base import DeviceController
-from uiautoagent.detector import BBox, DetectionResult
 
 
 class DummyController(DeviceController):
@@ -67,7 +66,7 @@ class DummyController(DeviceController):
         self.calls.append(("swipe", x, y, x, y, duration_ms))
 
 
-def test_long_press_by_target(tmp_path, mocker):
+def test_long_press_by_bbox(tmp_path):
     controller = DummyController()
     agent = DeviceAgent(
         controller,
@@ -75,28 +74,28 @@ def test_long_press_by_target(tmp_path, mocker):
             tasks_dir=str(tmp_path), save_screenshots=False, verbose=False
         ),
     )
-    mocker.patch(
-        "uiautoagent.detector.detect_element",
-        return_value=DetectionResult(
-            found=True,
-            bbox=BBox(x1=10, y1=20, x2=30, y2=40),
-            description="确定按钮",
-            thought="found",
-        ),
-    )
+
+    # 创建一个真实的截图文件（100x100）
+    from PIL import Image
+
+    img_path = tmp_path / "screen.png"
+    Image.new("RGB", (100, 100)).save(img_path)
 
     step = agent.step(
         Action(
             type=ActionType.LONG_PRESS,
             thought="长按目标",
-            params=LongPressParams(target="确定按钮", long_press_ms=900),
+            params=LongPressParams(
+                target="确定按钮", long_press_ms=900, bbox=[100, 200, 300, 400]
+            ),
         ),
-        screenshot_path=tmp_path / "screen.png",
+        screenshot_path=img_path,
     )
 
     assert step.success is True
+    # bbox [100,200,300,400] -> 实际坐标: (10,20,30,40), center=(20,30)
     assert ("swipe", 20, 30, 20, 30, 900) in controller.calls
-    assert step.observation == "已长按: 确定按钮 (900ms)"
+    assert step.observation == "长按: 确定按钮 (900ms)"
 
 
 def test_app_reboot_action(tmp_path):
@@ -125,4 +124,4 @@ def test_app_reboot_action(tmp_path):
     stop_idx = controller.calls.index(("app_stop", "com.tencent.mm"))
     launch_idx = controller.calls.index(("app_launch", "com.tencent.mm"))
     assert stop_idx < launch_idx, "app_stop should be called before app_launch"
-    assert step.observation == "已重启应用: com.tencent.mm"
+    assert step.observation == "重启应用: com.tencent.mm"

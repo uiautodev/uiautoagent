@@ -1,74 +1,80 @@
-这是一个python项目，使用uv做包管理。
-
-vibe coding的时候需要遵循以下的规范
-
-- 修改完成代码需要使用ruff检查一下
-- 使用pytest运行单测
-- 涉及到使用更新的时候，确保README.md也同步更新
-- 能使用pydantic的尽量就不用dict，这样可以更好的约束代码
-
 # CLAUDE.md
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+## Project Overview
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+UIAutoAgent - AI 驱动的移动端 UI 自动化框架。通过视觉 AI 模型识别屏幕元素，自主规划并执行任务。
 
-## 1. Think Before Coding
+核心流程：截图 → AI 规划动作(JSON) → 执行动作 → 循环直到完成。
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+## Tech Stack
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+- Python 3.10+, uv 包管理
+- Pydantic 数据模型（优先使用，不用 dict）
+- OpenAI 兼容 API（视觉模型 + 文本模型）
+- Android: ADB; iOS: WebDriverAgent + wdapy
 
-## 2. Simplicity First
+## Development Commands
 
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-## 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
+```bash
+uv sync                    # 安装依赖
+uv run ruff check .        # lint 检查
+uv run pytest              # 运行测试
+uv run pytest tests/test_xxx.py -v  # 单个测试文件
+uv run uiautoagent -m ai -t "任务描述"  # 运行 AI 任务
 ```
 
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+## Project Structure
 
----
+```
+src/uiautoagent/
+├── __init__.py          # 公开 API，加载 .env
+├── ai.py                # OpenAI client, chat_completion(), TokenTracker, Category 枚举
+├── types.py             # 共享 Pydantic 类型 (TokenUsage)
+├── cli/main.py          # CLI 入口: -m ai|find|manual
+├── controller/          # 设备控制抽象层
+│   ├── base.py          # DeviceController ABC
+│   ├── android.py       # AndroidController (ADB)
+│   └── ios.py           # IOSController (wdapy)
+├── detector/            # AI 视觉元素检测
+│   └── bbox_detector.py # detect_element(), 1000x1000 归一化坐标
+└── agent/               # 核心编排层
+    ├── plan.py          # Action/ActionType 模型, parse_plan_response()
+    ├── device_agent.py  # DeviceAgent: 步骤执行, 截图管理, 录制
+    ├── executor.py      # run_ai_task() 主循环, 系统提示词
+    ├── memory.py        # TaskMemory: YAML 持久化任务记忆
+    ├── ai_utils.py      # clarify_task(), summarize_task()
+    ├── report.py        # HTML 可视化报告生成
+    └── image_similarity.py  # 截图相似度计算
+```
 
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+## Key Architecture Concepts
+
+- **归一化坐标系**: AI 在 1000x1000 虚拟空间输出坐标，DeviceAgent 转换为实际像素
+- **截图复用**: 截图有 1 秒 TTL，避免决策和执行间重复截图
+- **RecordingController**: 装饰器模式，记录操作坐标用于报告可视化
+- **任务记忆**: YAML 持久化，线程安全，支持 original_task 精确匹配复用
+- **AI JSON 修复**: detector 中 safe_validate_json() 用 AI 修复格式错误的响应
+
+## Coding Conventions
+
+- 修改代码后必须 `ruff check` 检查
+- 使用 `pytest` 运行测试
+- 涉及 API 变更时同步更新 README.md
+- 优先使用 Pydantic 模型，不用 dict
+- 测试中使用 DummyController 模拟设备，不需要真实设备
+- Pre-commit hooks: ruff-format, detect-secrets, detect-private-key
+
+## Model Configuration
+
+通过 `.env` 配置，三个场景可使用不同模型：
+- `PLAN`: AI 规划（需要视觉能力）
+- `DETECT`: 元素检测（需要视觉能力）
+- `TEXT`: 文本处理（总结、澄清，纯文本即可）
+
+## Public API
+
+```python
+from uiautoagent import run_ai_task, detect_element, draw_bbox
+from uiautoagent import AndroidController, IOSController, SwipeDirection
+from uiautoagent import Category, chat_completion, TokenTracker
+```
