@@ -21,6 +21,7 @@ from uiautoagent.agent.plan import (
     LongPressParams,
     SwipeParams,
     TapParams,
+    TaskProposal,
     WaitParams,
 )
 
@@ -163,6 +164,7 @@ class DeviceAgent:
         self.history: list[TaskStep] = []
         self.step_count = 0
         self.task = task
+        self.proposal: TaskProposal | None = None
         self._last_screenshot_path: Path | None = None  # 上一步操作后的截图路径
         self._last_screenshot_time: float = 0  # 上一步操作后的截图时间戳
         self._screenshot_ttl: float = 1  # 截图有效期（秒）
@@ -563,23 +565,24 @@ class DeviceAgent:
         total_tokens = TokenTracker.get_total()
         stats_by_category = TokenTracker.get_stats()
 
-        data = {
-            "total_steps": len(self.history),
-            "total_tokens": {
-                "prompt_tokens": total_tokens.prompt,
-                "completion_tokens": total_tokens.completion,
-                "total_tokens": total_tokens.total,
-            },
-            "tokens_by_category": {
-                k: {
-                    "prompt_tokens": v.prompt,
-                    "completion_tokens": v.completion,
-                    "total_tokens": v.total,
-                }
-                for k, v in stats_by_category.items()
-            },
-            "steps": [step.model_dump() for step in self.history],
+        data = {}
+        if self.proposal:
+            data["proposal"] = self.proposal.model_dump()
+        data["total_steps"] = len(self.history)
+        data["total_tokens"] = {
+            "prompt_tokens": total_tokens.prompt,
+            "completion_tokens": total_tokens.completion,
+            "total_tokens": total_tokens.total,
         }
+        data["tokens_by_category"] = {
+            k: {
+                "prompt_tokens": v.prompt,
+                "completion_tokens": v.completion,
+                "total_tokens": v.total,
+            }
+            for k, v in stats_by_category.items()
+        }
+        data["steps"] = [step.model_dump() for step in self.history]
         Path(path).write_text(
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
