@@ -89,7 +89,7 @@ def demo_ai_assisted_task(
     task: str = "修改昵称为kitty",
     platform: str = "android",
     serial: str | None = None,
-    knowledge: str | None = None,
+    context: str | None = None,
 ):
     """
     演示AI辅助任务执行 - AI自主决策并完成任务
@@ -98,9 +98,9 @@ def demo_ai_assisted_task(
         task: 要执行的任务描述
         platform: 设备平台
         serial: 设备序列号/UDID
-        knowledge: 用户提供的背景知识
+        context: 用户提供的任务上下文
     """
-    run_ai_task(task, serial=serial, platform=platform, knowledge=knowledge)
+    run_ai_task(task, serial=serial, platform=platform, context=context)
 
 
 def demo_find_and_click(
@@ -179,29 +179,37 @@ def main():
         help="最大执行步数",
     )
     parser.add_argument(
-        "--knowledge-file",
-        "-kf",
+        "--context-file",
+        "-cf",
         default=None,
-        help="背景知识文件路径，提供任务相关的背景信息以提高执行成功率",
+        help="任务上下文文件路径，提供任务相关的背景信息以提高执行成功率",
+    )
+    parser.add_argument(
+        "--context",
+        "-c",
+        default=None,
+        help="直接传入任务上下文文本",
     )
     args = parser.parse_args()
 
     if not check_all_models_available():
         return
 
-    # 读取背景知识文件
-    knowledge = None
-    if args.knowledge_file:
+    # 读取任务上下文
+    context = None
+    if args.context:
+        context = args.context.strip()
+    elif args.context_file:
         from pathlib import Path
 
-        kpath = Path(args.knowledge_file)
+        kpath = Path(args.context_file)
         if not kpath.exists():
-            print(f"❌ 背景知识文件不存在: {kpath}")
+            print(f"❌ 任务上下文文件不存在: {kpath}")
             return
-        knowledge = kpath.read_text(encoding="utf-8").strip()
-        if not knowledge:
-            print("⚠️  背景知识文件为空，已忽略")
-            knowledge = None
+        context = kpath.read_text(encoding="utf-8").strip()
+        if not context:
+            print("⚠️  任务上下文文件为空，已忽略")
+            context = None
 
     if args.mode == "manual":
         demo_manual_control(platform=args.platform, serial=args.serial)
@@ -210,7 +218,7 @@ def main():
             args.task,
             platform=args.platform,
             serial=args.serial,
-            knowledge=knowledge,
+            context=context,
         )
     else:
         demo_find_and_click(

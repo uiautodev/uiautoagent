@@ -125,12 +125,14 @@ def _action_icon(action_type: str) -> str:
 def generate_html_report(
     steps: list[TaskStep],
     task_dir: Path,
+    task: str | None = None,
 ) -> Path:
     """生成HTML可视化报告
 
     Args:
         steps: 任务步骤列表
         task_dir: 任务目录
+        task: 任务描述
 
     Returns:
         报告文件路径
@@ -140,6 +142,14 @@ def generate_html_report(
 
     success_count = sum(1 for s in steps if s.success)
     fail_count = len(steps) - success_count
+
+    # 任务显示
+    task_html = ""
+    if task:
+        task_html = f"""<div style="background:#e3f2fd; border-radius:8px; padding:15px; margin:10px auto; max-width:800px; text-align:center;">
+            <span style="color:#1976d2; font-weight:bold; font-size:14px;">🎯 任务：</span>
+            <span style="color:#333;">{html.escape(task)}</span>
+        </div>"""
 
     # 生成标注截图
     annotated_images: dict[int, str] = {}
@@ -214,7 +224,9 @@ def generate_html_report(
         if step.ai_user_prompt:
             ai_detail_parts.append(("User Prompt", html.escape(step.ai_user_prompt)))
         if step.ai_response:
-            ai_detail_parts.append(("Assistant Response", html.escape(step.ai_response)))
+            ai_detail_parts.append(
+                ("Assistant Response", html.escape(step.ai_response))
+            )
 
         ai_response_html = ""
         if ai_detail_parts:
@@ -268,7 +280,7 @@ def generate_html_report(
             <div class="step-header">
                 <span class="step-num">步骤 {step.step_number}</span>
                 <span class="status-badge {status_class}">{status_text}</span>
-                <span class="action-type">{icon} {html.escape(step.action.type)}</span>
+                <span class="action-type">{icon} {html.escape(step.action.log or step.action.type)}</span>
             </div>
             <div class="step-body">
                 {screenshots_html}
@@ -332,6 +344,7 @@ def generate_html_report(
 <div class="container">
     <h1>任务执行报告</h1>
     <p style="text-align:center; color:#999; margin-bottom:20px;">{now}</p>
+    {task_html}
     <div class="summary">
         <div class="summary-item"><div class="num">{len(steps)}</div><div class="label">总步骤</div></div>
         <div class="summary-item"><div class="num" style="color:#4caf50">{success_count}</div><div class="label">成功</div></div>

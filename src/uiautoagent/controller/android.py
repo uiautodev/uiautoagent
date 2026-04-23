@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import List
 
+from PIL import Image
+
 from uiautoagent.controller.base import DeviceController, SwipeDirection
 
 
@@ -97,7 +99,7 @@ class AndroidController(DeviceController):
         y1: int,
         x2: int,
         y2: int,
-        duration_ms: int = 300,
+        duration_ms: int = 500,
     ) -> None:
         """
         滑动屏幕
@@ -122,7 +124,7 @@ class AndroidController(DeviceController):
         self,
         direction: SwipeDirection,
         ratio: float = 0.25,
-        duration_ms: int = 300,
+        duration_ms: int = 500,
     ) -> None:
         """
         向指定方向滑动
@@ -207,9 +209,15 @@ class AndroidController(DeviceController):
         """
         output = Path(output_path)
         temp_path = "/sdcard/screenshot.png"
-        self._run_adb("shell", "screencap", "-p", temp_path)
-        self._run_adb("pull", temp_path, str(output))
-        self._run_adb("shell", "rm", temp_path)
+        try:
+            self._run_adb("shell", "screencap", "-p", temp_path)
+            self._run_adb("pull", temp_path, str(output))
+            self._run_adb("shell", "rm", temp_path)
+        except RuntimeError:
+            # 安全验证等场景下 screencap 会失败，返回纯黑图片
+            info = self.get_device_info()
+            img = Image.new("RGB", (info["width"], info["height"]), (0, 0, 0))
+            img.save(output)
         return output
 
     @staticmethod
@@ -236,8 +244,14 @@ class AndroidController(DeviceController):
             app_id: 应用包名，如 com.tencent.mm
         """
         output = self._run_adb(
-            "shell", "cmd", "package", "resolve-activity",
-            "--brief", "-c", "android.intent.category.LAUNCHER", app_id,
+            "shell",
+            "cmd",
+            "package",
+            "resolve-activity",
+            "--brief",
+            "-c",
+            "android.intent.category.LAUNCHER",
+            app_id,
         )
         for line in output.splitlines():
             line = line.strip()

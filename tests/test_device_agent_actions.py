@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from uiautoagent.agent.device_agent import Action, ActionType, AgentConfig, DeviceAgent
+from uiautoagent.agent.plan import LongPressParams, AppIdParams
 from uiautoagent.controller.base import DeviceController
 from uiautoagent.detector import BBox, DetectionResult
 
@@ -22,7 +23,9 @@ class DummyController(DeviceController):
     def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300) -> None:
         self.calls.append(("swipe", x1, y1, x2, y2, duration_ms))
 
-    def swipe_direction(self, direction, ratio: float = 0.25, duration_ms: int = 300) -> None:
+    def swipe_direction(
+        self, direction, ratio: float = 0.25, duration_ms: int = 300
+    ) -> None:
         self.calls.append(("swipe_direction", direction, ratio, duration_ms))
 
     def input_text(self, text: str) -> None:
@@ -56,36 +59,21 @@ class DummyController(DeviceController):
     def app_stop(self, app_id: str) -> None:
         self.calls.append(("app_stop", app_id))
 
+    def app_reboot(self, app_id: str) -> None:
+        self.calls.append(("app_stop", app_id))
+        self.calls.append(("app_launch", app_id))
 
-def test_long_press_by_position(tmp_path):
-    controller = DummyController()
-    agent = DeviceAgent(
-        controller,
-        config=AgentConfig(tasks_dir=str(tmp_path), save_screenshots=False, verbose=False),
-    )
-
-    action = Action(
-        type=ActionType.LONG_PRESS,
-        thought="长按坐标",
-        position=(100, 200),
-        long_press_ms=1200,
-    )
-    step = agent.step(
-        action,
-        screenshot_path=tmp_path / "screen.png",
-    )
-
-    assert step.success is True
-    assert ("swipe", 100, 200, 100, 200, 1200) in controller.calls
-    assert step.observation == "已长按坐标 (100, 200) 1200ms"
-    assert str(action) == "长按: 坐标@(100, 200) (1200ms)"
+    def long_press(self, x: int, y: int, duration_ms: int = 800) -> None:
+        self.calls.append(("swipe", x, y, x, y, duration_ms))
 
 
 def test_long_press_by_target(tmp_path, mocker):
     controller = DummyController()
     agent = DeviceAgent(
         controller,
-        config=AgentConfig(tasks_dir=str(tmp_path), save_screenshots=False, verbose=False),
+        config=AgentConfig(
+            tasks_dir=str(tmp_path), save_screenshots=False, verbose=False
+        ),
     )
     mocker.patch(
         "uiautoagent.detector.detect_element",
@@ -101,8 +89,7 @@ def test_long_press_by_target(tmp_path, mocker):
         Action(
             type=ActionType.LONG_PRESS,
             thought="长按目标",
-            target="确定按钮",
-            long_press_ms=900,
+            params=LongPressParams(target="确定按钮", long_press_ms=900),
         ),
         screenshot_path=tmp_path / "screen.png",
     )
@@ -116,17 +103,26 @@ def test_app_reboot_action(tmp_path):
     controller = DummyController()
     agent = DeviceAgent(
         controller,
-        config=AgentConfig(tasks_dir=str(tmp_path), save_screenshots=False, verbose=False),
+        config=AgentConfig(
+            tasks_dir=str(tmp_path), save_screenshots=False, verbose=False
+        ),
     )
 
     step = agent.step(
-        Action(type=ActionType.APP_REBOOT, thought="重启微信", app_id="com.tencent.mm"),
+        Action(
+            type=ActionType.APP_REBOOT,
+            thought="重启微信",
+            params=AppIdParams(app_id="com.tencent.mm"),
+        ),
         screenshot_path=tmp_path / "screen.png",
     )
 
     assert step.success is True
-    assert controller.calls[-2:] == [
-        ("app_stop", "com.tencent.mm"),
-        ("app_launch", "com.tencent.mm"),
-    ]
+    # app_reboot 会先调用 app_stop 再调用 app_launch
+    assert ("app_stop", "com.tencent.mm") in controller.calls
+    assert ("app_launch", "com.tencent.mm") in controller.calls
+    # 确保顺序正确（app_stop 在 app_launch 之前）
+    stop_idx = controller.calls.index(("app_stop", "com.tencent.mm"))
+    launch_idx = controller.calls.index(("app_launch", "com.tencent.mm"))
+    assert stop_idx < launch_idx, "app_stop should be called before app_launch"
     assert step.observation == "已重启应用: com.tencent.mm"

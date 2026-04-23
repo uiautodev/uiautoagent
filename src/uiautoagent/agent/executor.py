@@ -2,35 +2,24 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict
 
 from uiautoagent import Category, chat_completion
-from uiautoagent.agent import AgentConfig, DeviceAgent, Action, ActionType
+from uiautoagent.agent import AgentConfig, DeviceAgent, ActionType
 from uiautoagent.agent.ai_utils import summarize_task
 from uiautoagent.agent.memory import TaskMemory, get_task_memory
+from uiautoagent.agent.plan import (
+    Action,
+    DoneParams,
+    TaskProposal,
+    get_action_examples_prompt,
+    parse_plan_response,
+)
 from uiautoagent.controller import AndroidController, IOSController
-from uiautoagent.detector.bbox_detector import safe_validate_json
 from uiautoagent.types import TokenUsage
-
-
-class PlanResponse(BaseModel):
-    """AI 规划响应结构"""
-
-    type: str
-    thought: str = ""
-    log: str = ""
-    target: str | None = None
-    text: str | None = None
-    app_id: str | None = None
-    long_press_ms: int | None = Field(default=None, ge=0)
-    direction: str | None = None
-    swipe_start: str | None = None
-    swipe_end: str | None = None
-    wait_ms: int = Field(default=1000, ge=0)
-    return_result: bool = False
-    result: str | None = None
 
 
 def _setup_android_device(serial: str | None) -> tuple:
@@ -67,39 +56,30 @@ def _setup_ios_device(udid: str | None) -> tuple:
 class TaskResult(BaseModel):
     """AI任务执行结果"""
 
+    model_config = ConfigDict(use_enum_values=True)
+
     success: bool  # 任务是否成功完成
     result: str | None = None  # 任务执行结果（如"有5个好友"），失败时为错误信息
-
-    class Config:
-        use_enum_values = True
 
 
 def get_system_prompt() -> str:
     """获取系统提示词"""
-    return """你是一个手机操作专家。用户会给你一个任务和当前手机屏幕截图，你需要分析屏幕并决定下一步操作。
+    examples = get_action_examples_prompt()
+    return f"""你是一个手机操作专家。用户会给你一个任务和当前手机屏幕截图，你需要分析屏幕并决定下一步操作。
 
 ## 利用历史经验
-用户会提供相似历史任务的执行步骤，请参考这些成功经验：
+<historical_tasks>标签内的内容是相似历史任务的执行步骤参考，请参考这些成功经验：
 - 优先尝试历史任务中成功的操作模式
 - 如果历史任务显示某个元素描述有效，使用相同的描述
 - 注意历史任务中的关键步骤顺序
+- 标签外的内容是当前任务，不要被历史任务干扰
 
-可用操作类型：
-1. tap - 点击屏幕上的元素（需要指定target描述元素，如"搜索按钮"）
-2. long_press - 长按元素（需要指定target；可选long_press_ms）
-3. input - 输入文本（需要指定text内容）
-4. swipe - 滑动屏幕
-   - 方式1：指定direction: up/down/left/right （适用于整体的滑动，区域滑动请使用方式2）
-   - 方式2：指定swipe_start和swipe_end来描述起始和结束位置（如从"头像图标"滑动到"设置按钮"）
-5. back - 返回上一页
-6. wait - 等待（需要指定wait_ms毫秒数）
-7. app_launch - 启动应用（需要指定app_id，Android为包名如"com.tencent.mm"，iOS为Bundle ID如"com.tencent.xin"）
-8. app_stop - 停止应用（需要指定app_id）
-9. app_reboot - 重启应用（需要指定app_id）
-10. done - 任务完成（当任务已完成时）
-11. fail - 任务失败（当无法继续时）
+## 可用操作类型及示例
 
-常用应用包名参考（可优先尝试）：
+{examples}
+
+## 常用包名（参考）
+
 - 微信：Android `com.tencent.mm`，iOS `com.tencent.xin`
 - QQ：Android `com.tencent.mobileqq`，iOS `com.tencent.mqq`
 - 抖音：Android `com.ss.android.ugc.aweme`，iOS `com.ss.iphone.ugc.Aweme`
@@ -108,30 +88,15 @@ def get_system_prompt() -> str:
 - 淘宝：Android `com.taobao.taobao`，iOS `com.taobao.taobao4iphone`
 - 哔哩哔哩：Android `tv.danmaku.bili`，iOS `com.bilibili.app`
 
-请以JSON格式返回你的决策：
-{
-  "thought": "为什么执行这个操作",
-  "log": "简洁说明为什么做和做了什么，格式如：为了进入搜索页面，点击了搜索按钮",
-  "type": "操作类型",
-  "target": "目标元素描述（tap/long_press时可用，其他操作省略此字段）",
-  "text": "输入文本（仅input时需要，其他操作省略此字段）",
-  "app_id": "应用包名或Bundle ID（仅app_launch/app_stop/app_reboot时需要，其他操作省略此字段）",
-  "long_press_ms": "长按毫秒数（仅long_press时可选，默认800，其他操作省略此字段）",
-  "direction": "滑动方向（仅swipe按方向滑动时需要，值为up/down/left/right之一，其他操作省略此字段）",
-  "swipe_start": "滑动起始位置描述（仅swipe按位置描述时需要，与swipe_end配合使用）",
-  "swipe_end": "滑动结束位置描述（仅swipe按位置描述时需要，与swipe_start配合使用）",
-  "wait_ms": "等待毫秒数（仅wait时需要，默认1000，其他操作省略此字段）",
-  "return_result": "是否返回观察结果（仅done时需要）",
-  "result": "任务返回的结果或答案（仅done时需要）"
-}
+## 重要说明
 
-重要：
+**字段使用规则：**
 - 只包含你使用的操作类型所需的字段，不要包含空字符串或null值
-- 例如：tap操作只需要type、thought、target三个字段
+- 每种操作类型只需要必需的字段，参考上面的示例
 - swipe操作可以选择direction或swipe_start+swipe_end，不要同时提供
 - 当任务需要返回观察结果时，done操作必须包含return_result和result字段
 
-注意：
+**注意事项：**
 - 优先参考历史任务的成功步骤
 - 分析屏幕时要仔细，确保能找到目标元素
 - 如果任务需要操作特定应用，优先使用app_launch启动该应用，确保从正确的界面开始
@@ -141,10 +106,21 @@ def get_system_prompt() -> str:
 - input类型操作前需要先tap对应的输入框
 - 如果任务要求返回信息（如"查看好友发了什么消息"），done时必须设置return_result:true并在result中描述结果
 
+**界面相似度参考：**
+- 历史步骤中会标注界面变化情况（[界面几乎无变化]、[界面明显变化]等）
+- 如果点击/滑动后界面几乎无变化，说明操作可能未生效，需要：
+  - 检查是否点到了正确的位置（尝试更精确的描述）
+  - 考虑增加等待时间（界面响应可能有延迟）
+  - 尝试其他操作方式（如用swipe_direction代替点击特定位置）
+- 如果界面有明显变化，说明操作生效，可以继续下一步
+
 **避免重复失败：**
-- 如果同样的操作（如点击某个元素、向某个方向滑动）连续失败超过2次，必须立即更换思路
-- 例如：如果点击"设置按钮"3次都失败，尝试：1)换种描述（如"齿轮图标"）；2)先滑动页面再找；3)考虑从其他入口进入
-- 重复同样的无效操作是浪费步数，观察失败原因后必须调整策略"""
+- 如果同样的操作（如点击某个元素、向某个方向滑动）一直失败，必须立即更换思路
+- 重复同样的无效操作是浪费步数，观察失败原因后必须调整策略
+
+**输出要求**
+根据示列中的格式，输出你认为最合适的下一步操作。只需要输出JSON，不要任何额外文本。
+"""
 
 
 def build_history_summary(history: list) -> str:
@@ -158,46 +134,47 @@ def build_history_summary(history: list) -> str:
         action = h["action"]
 
         # 构建动作详情
-        parts = [f"类型: {action['type']}"]
+        parts = []
         if action.get("log"):
             parts.append(f"操作: {action['log']}")
         elif action.get("thought"):
             parts.append(f"思考: {action['thought']}")
-        # if action.get("target"):
-        #     parts.append(f"目标: {action['target']}")
-        # if action.get("text"):
-        #     parts.append(f"输入: {action['text']}")
-        # if action.get("app_id"):
-        #     parts.append(f"应用: {action['app_id']}")
-        # if action.get("direction"):
-        #     parts.append(f"方向: {action['direction']}")
-        # if action.get("swipe_start") and action.get("swipe_end"):
-        #     parts.append(f"滑动: {action['swipe_start']} → {action['swipe_end']}")
-        # if action.get("wait_ms"):
-        #     parts.append(f"等待: {action['wait_ms']}ms")
 
         details = ", ".join(parts)
-        obs_suffix = f" → {h['observation']}" if h.get("observation") else ""
-        lines.append(f"[步骤{h['step']}] {status} {details}{obs_suffix}")
+
+        # 添加相似度信息（如果有）
+        similarity_info = ""
+        if h.get("image_similarity") is not None:
+            sim = h["image_similarity"]
+            if sim > 0.95:
+                similarity_info = " [界面几乎无变化，操作可能未生效]"
+            elif sim > 0.85:
+                similarity_info = " [界面轻微变化]"
+            elif sim > 0.7:
+                similarity_info = " [界面明显变化]"
+            else:
+                similarity_info = " [界面大幅变化]"
+
+        lines.append(f"- [步骤{h['step']}] {status} {details}{similarity_info}")
 
     return "\n".join(lines)
 
 
 def build_user_prompt_with_memory(
-    task: str, context: dict, memory_reference: str, knowledge: str | None = None
+    task: str, context: dict, memory_reference: str, user_context: str | None = None
 ) -> str:
-    """构建用户消息（包含历史任务参考和背景知识）"""
+    """构建用户消息（包含历史任务参考和任务上下文）"""
     from datetime import datetime
 
     history_summary = build_history_summary(context["history"])
     device_info = context["device_info"]
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    knowledge_section = ""
-    if knowledge:
-        knowledge_section = f"""## 背景知识
-以下是用户提供的关于当前任务的背景知识，请优先参考：
-{knowledge}
+    context_section = ""
+    if user_context:
+        context_section = f"""## 任务上下文
+以下是用户提供的关于当前任务的上下文信息，请优先参考：
+{user_context}
 
 """
 
@@ -206,13 +183,16 @@ def build_user_prompt_with_memory(
 设备信息：{device_info["model"]} ({device_info["width"]}x{device_info["height"]})
 当前时间：{current_time}
 
-{knowledge_section}{memory_reference}
+{context_section}{memory_reference}
 
 ## 当前任务执行历史
 {history_summary}
 
 ## 当前屏幕
-请参考上方相似历史任务的经验，分析当前屏幕并决定下一步操作："""
+任务: {task}
+请参考上方相似历史任务的经验，分析当前屏幕并决定下一步操作：
+JSON输出
+"""
 
 
 def encode_screenshot(screenshot_path: str | Path) -> str:
@@ -223,13 +203,11 @@ def encode_screenshot(screenshot_path: str | Path) -> str:
         return base64.b64encode(f.read()).decode()
 
 
-def call_ai_plan(
-    system_prompt: str, user_prompt: str, screenshot_b64: str
-) -> PlanResponse:
-    """调用AI规划API
+def get_ai_action(system_prompt: str, user_prompt: str, screenshot_b64: str) -> Action:
+    """调用AI获取下一步动作
 
     Returns:
-        PlanResponse 规划结果
+        Action AI规划的动作
     """
     response = chat_completion(
         category=Category.PLAN,
@@ -247,7 +225,7 @@ def call_ai_plan(
             },
         ],
         response_format={"type": "json_object"},
-        max_tokens=1024,
+        max_tokens=2048,
         temperature=0.0,
     )
 
@@ -257,45 +235,15 @@ def call_ai_plan(
 
     print(f"[AI思考] {plan_text[:200]}...")
 
-    return safe_validate_json(plan_text, PlanResponse)
-
-
-def parse_action_from_plan(plan: PlanResponse) -> Action:
-    """从AI规划解析出Action对象"""
-    action_type = ActionType(plan.type if plan.type else "fail")
-
-    kwargs: dict = {
-        "type": action_type,
-        "thought": plan.thought or "",
-        "log": plan.log or "",
-    }
-
-    if plan.target:
-        kwargs["target"] = plan.target
-    if plan.text:
-        kwargs["text"] = plan.text
-    if plan.app_id:
-        kwargs["app_id"] = plan.app_id
-    if action_type == ActionType.LONG_PRESS and plan.long_press_ms is not None:
-        kwargs["long_press_ms"] = plan.long_press_ms
-    if plan.direction and plan.direction in ("up", "down", "left", "right"):
-        kwargs["direction"] = plan.direction
-    if plan.swipe_start:
-        kwargs["swipe_start"] = plan.swipe_start
-    if plan.swipe_end:
-        kwargs["swipe_end"] = plan.swipe_end
-    if plan.wait_ms:
-        kwargs["wait_ms"] = plan.wait_ms
-    if plan.return_result:
-        kwargs["return_result"] = True
-    if plan.result:
-        kwargs["result"] = plan.result
-
-    return Action(**kwargs)
+    return parse_plan_response(plan_text)
 
 
 def handle_task_status(
-    action: Action, agent: DeviceAgent, task: str, task_memory: TaskMemory
+    action: Action,
+    agent: DeviceAgent,
+    task: str,
+    task_memory: TaskMemory,
+    original_task: str | None = None,
 ) -> TaskResult | None:
     """
     处理任务状态并保存记忆
@@ -308,15 +256,24 @@ def handle_task_status(
 
         result = None
         # 如果需要返回结果
-        if action.return_result and action.result:
-            result = action.result
+        assert isinstance(action.params, DoneParams)
+        if action.params.return_result and action.params.result:
+            result = action.params.result
             print("\n📋 任务结果:")
             print(f"   {result}")
             print(f"\n📸 当前截图: {agent.get_current_screenshot()}")
 
         # 先保存任务记忆（会调用summarize，产生token）
-        summary = summarize_task(task, agent.history, success=True)
-        task_memory.save_task(task, agent.history, success=True, summary=summary)
+        summary = summarize_task(
+            task, agent.history, success=True, original_task=original_task
+        )
+        task_memory.save_task(
+            task,
+            agent.history,
+            success=True,
+            summary=summary,
+            original_task=original_task,
+        )
         print("💾 已保存任务记忆")
 
         # 然后保存历史和打印统计（包含summarize的token）
@@ -329,8 +286,16 @@ def handle_task_status(
         print(f"\n❌ AI认为任务无法完成: {action.thought}")
 
         # 先保存任务记忆（会调用summarize，产生token）
-        summary = summarize_task(task, agent.history, success=False)
-        task_memory.save_task(task, agent.history, success=False, summary=summary)
+        summary = summarize_task(
+            task, agent.history, success=False, original_task=original_task
+        )
+        task_memory.save_task(
+            task,
+            agent.history,
+            success=False,
+            summary=summary,
+            original_task=original_task,
+        )
 
         # 然后保存历史和打印统计（包含summarize的token）
         agent.save_history()
@@ -354,15 +319,15 @@ def handle_ai_error(agent: DeviceAgent, error: Exception):
 
 
 def execute_ai_task(
-    agent: DeviceAgent, task: str, knowledge: str | None = None
+    agent: DeviceAgent, proposal: TaskProposal, user_context: str | None = None
 ) -> TaskResult:
     """
     使用AI自主执行任务，支持任务记忆复用
 
     Args:
         agent: 设备Agent
-        task: 任务描述
-        knowledge: 用户提供的背景知识
+        proposal: 任务提案（包含原始任务和澄清后的任务）
+        user_context: 用户提供的任务上下文
 
     Returns:
         TaskResult: 任务执行结果
@@ -371,7 +336,7 @@ def execute_ai_task(
 
     # 获取任务记忆
     task_memory = get_task_memory()
-    similar_tasks = task_memory.find_similar_tasks(task)
+    similar_tasks = task_memory.find_similar_tasks(proposal.clarified_task)
 
     if similar_tasks:
         print(f"💡 找到 {len(similar_tasks)} 个相似历史任务，将作为参考:")
@@ -391,13 +356,16 @@ def execute_ai_task(
 
         # 准备数据
         screenshot_path = agent.get_current_screenshot()
-        context = agent.get_context_for_ai()
+        ai_context = agent.get_context_for_ai()
         screenshot_b64 = encode_screenshot(screenshot_path)
 
-        # 构建用户消息（包含历史任务参考和背景知识）
+        # 构建用户消息（包含历史任务参考和任务上下文）
         memory_reference = task_memory.format_for_ai(similar_tasks)
         user_prompt = build_user_prompt_with_memory(
-            task, context, memory_reference, knowledge=knowledge
+            proposal.clarified_task,
+            ai_context,
+            memory_reference,
+            user_context=user_context,
         )
 
         # 调用AI决策
@@ -405,21 +373,23 @@ def execute_ai_task(
             from uiautoagent.ai import TokenTracker
 
             tokens_before = TokenTracker.get_total()
+            step_start = time.time()
 
-            plan = call_ai_plan(system_prompt, user_prompt, screenshot_b64)
-            action = parse_action_from_plan(plan)
+            action = get_ai_action(system_prompt, user_prompt, screenshot_b64)
 
             # 执行动作（复用已截好的图，避免重复截图）
-            task_step = agent.step(action, screenshot_path=screenshot_path)
+            task_step = agent.step(
+                action, screenshot_path=screenshot_path, step_start=step_start
+            )
 
-            # 计算本步总 token 消耗（plan + detect 等所有 AI 调用）
+            # 计算本步总 token 消耗（action + detect 等所有 AI 调用）
             tokens_after = TokenTracker.get_total()
             task_step.ai_tokens = TokenUsage(
                 prompt=tokens_after.prompt - tokens_before.prompt,
                 completion=tokens_after.completion - tokens_before.completion,
                 total=tokens_after.total - tokens_before.total,
             )
-            task_step.ai_response = plan.model_dump_json(exclude_none=True)
+            task_step.ai_response = action.model_dump_json(exclude_none=True)
             task_step.ai_system_prompt = system_prompt
             task_step.ai_user_prompt = user_prompt
 
@@ -427,7 +397,13 @@ def execute_ai_task(
             agent._append_step_log(task_step)
 
             # 检查任务状态
-            result = handle_task_status(action, agent, task, task_memory)
+            result = handle_task_status(
+                action,
+                agent,
+                proposal.clarified_task,
+                task_memory,
+                original_task=proposal.original_task,
+            )
             if result is not None:
                 return result
 
@@ -444,7 +420,12 @@ def execute_ai_task(
     agent.print_summary()
 
     # 保存未完成任务记忆
-    task_memory.save_task(task, agent.history, success=False)
+    task_memory.save_task(
+        proposal.clarified_task,
+        agent.history,
+        success=False,
+        original_task=proposal.original_task,
+    )
 
     return TaskResult(success=False, result=f"达到最大步数限制 ({max_steps})")
 
@@ -455,7 +436,7 @@ def run_ai_task(
     max_steps: int = 30,
     verbose: bool = True,
     platform: str = "android",
-    knowledge: str | None = None,
+    context: str | None = None,
 ) -> TaskResult:
     """
     运行 AI 自主任务 - 便捷函数
@@ -468,7 +449,7 @@ def run_ai_task(
         max_steps: 最大执行步数
         verbose: 是否打印详细日志
         platform: 设备平台，"android" 或 "ios"
-        knowledge: 用户提供的背景知识，帮助AI更好地理解任务
+        context: 用户提供的任务上下文，帮助AI更好地理解任务
 
     Returns:
         TaskResult: 任务执行结果，包含 success 和 result 字段
@@ -500,6 +481,7 @@ def run_ai_task(
             save_screenshots=True,
             verbose=verbose,
         ),
+        task=task,
     )
 
     info = controller.get_device_info()
@@ -507,19 +489,24 @@ def run_ai_task(
     print(f"📁 任务目录: {agent.task_dir}")
 
     print(f"\n🎯 任务: {task}")
-    if knowledge:
-        print(f"📖 背景知识: {knowledge[:100]}{'...' if len(knowledge) > 100 else ''}")
+    if context:
+        print(f"📖 任务上下文: {context[:100]}{'...' if len(context) > 100 else ''}")
 
     # 用AI澄清任务描述
     from uiautoagent.agent.ai_utils import clarify_task
 
+    original_task = task  # 保存原始输入
     task = clarify_task(task)
+
+    # 创建任务提案
+    proposal = TaskProposal(original_task=original_task, clarified_task=task)
+    agent.proposal = proposal
 
     print("🤖 AI将自主分析屏幕并决策每一步操作...\n")
 
     # 执行AI自主任务
     try:
-        return execute_ai_task(agent, task, knowledge=knowledge)
+        return execute_ai_task(agent, proposal, user_context=context)
     except Exception as e:
         print(f"❌ 任务执行出错: {e}")
         return TaskResult(success=False, result=str(e))

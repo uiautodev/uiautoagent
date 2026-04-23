@@ -66,10 +66,10 @@ _example_not_found = ElementLocation(
 _EXAMPLES = f"""
 输出示例：
 找到元素时：
-{_example_found.model_dump_json(ensure_ascii=False)}
+{_example_found.model_dump_json()}
 
 未找到元素时：
-{_example_not_found.model_dump_json(ensure_ascii=False)}
+{_example_not_found.model_dump_json()}
 """
 
 # 将示例加入系统提示
@@ -273,7 +273,7 @@ _multi_example = MultiElementLocation(
 
 _MULTI_EXAMPLES = f"""
 输出示例（多元素检测）：
-{_multi_example.model_dump_json(ensure_ascii=False)}
+{_multi_example.model_dump_json()}
 """
 
 

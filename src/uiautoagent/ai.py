@@ -19,6 +19,24 @@ from pydantic import BaseModel, Field
 SESSION_ID = os.getenv("SESSION_ID") or str(uuid.uuid4())
 
 
+def _get_env(key: str, default: str | None = None) -> str | None:
+    """
+    获取环境变量，优先使用 UIAUTO_ 前缀版本
+
+    Args:
+        key: 环境变量名称（不含前缀）
+        default: 默认值
+
+    Returns:
+        环境变量值，如果不存在则返回默认值
+
+    Example:
+        >>> _get_env("BASE_URL", "https://api.openai.com/v1")
+        # 优先读取 UIAUTO_BASE_URL，如果不存在则读取 BASE_URL
+    """
+    return os.getenv(f"UIAUTO_{key}", os.getenv(key, default))
+
+
 class Category(str, Enum):
     """AI 调用场景分类
 
@@ -33,11 +51,11 @@ class Category(str, Enum):
 
 # 不同场景的模型配置
 _MODEL_CONFIG: dict[Category, str] = {
-    Category.PLAN: os.getenv("MODEL_PLAN", ""),
-    Category.DETECT: os.getenv("MODEL_DETECT", ""),
-    Category.TEXT: os.getenv("MODEL_TEXT", ""),
+    Category.PLAN: _get_env("MODEL_PLAN") or "",
+    Category.DETECT: _get_env("MODEL_DETECT") or "",
+    Category.TEXT: _get_env("MODEL_TEXT") or "",
 }
-_DEFAULT_MODEL = os.getenv("MODEL_NAME", "gpt-4o")
+_DEFAULT_MODEL = _get_env("MODEL_NAME", "gpt-4o")
 
 
 class TokenStats(BaseModel):
@@ -157,13 +175,14 @@ def _get_ai_client() -> OpenAI:
     """
     获取 AI 客户端实例（单例模式，内部使用）
 
-    注意：默认忽略系统代理，可通过 MODEL_PROXY 环境变量指定代理
+    注意：默认忽略系统代理，可通过 UIAUTO_MODEL_PROXY 环境变量指定代理
 
     Returns:
         OpenAI 客户端实例
     """
-    timeout = float(os.getenv("REQUEST_TIMEOUT", "60"))
-    proxy = os.getenv("MODEL_PROXY") or None
+    timeout_str = _get_env("REQUEST_TIMEOUT", "60") or "60"
+    timeout = float(timeout_str)
+    proxy = _get_env("MODEL_PROXY")
 
     http_client = httpx.Client(trust_env=False, timeout=timeout, proxy=proxy)
 
@@ -175,8 +194,9 @@ def _get_ai_client() -> OpenAI:
         default_headers["X-OpenRouter-Title"] = site_name
 
     return OpenAI(
-        base_url=os.getenv("BASE_URL", "https://api.openai.com/v1"),
-        api_key=os.getenv("API_KEY"),
+        base_url=_get_env("BASE_URL", "https://api.openai.com/v1")
+        or "https://api.openai.com/v1",
+        api_key=_get_env("API_KEY"),
         http_client=http_client,
         timeout=timeout,
         default_headers=default_headers or None,
@@ -213,7 +233,7 @@ def get_ai_model(category: Category | str | None = None) -> str:
                 model = _MODEL_CONFIG[cat]
                 if model:
                     return model
-    return _DEFAULT_MODEL
+    return _DEFAULT_MODEL or "gpt-4o"
 
 
 def get_ai_config() -> dict:
@@ -224,9 +244,10 @@ def get_ai_config() -> dict:
         包含 base_url, model, timeout 等配置的字典
     """
     return {
-        "base_url": os.getenv("BASE_URL", "https://api.openai.com/v1"),
+        "base_url": _get_env("BASE_URL", "https://api.openai.com/v1")
+        or "https://api.openai.com/v1",
         "model": _DEFAULT_MODEL,
-        "timeout": int(os.getenv("REQUEST_TIMEOUT", "30")),
+        "timeout": int(_get_env("REQUEST_TIMEOUT", "30") or "30"),
     }
 
 
@@ -262,7 +283,8 @@ def check_all_models_available() -> bool:
     """
     # 收集所有唯一的模型名称
     models: dict[str, list[str]] = {}  # model -> [label, ...]
-    models.setdefault(_DEFAULT_MODEL, []).append("default")
+    default_model = _DEFAULT_MODEL or "gpt-4o"
+    models.setdefault(default_model, []).append("default")
     for cat, m in _MODEL_CONFIG.items():
         if m:
             models.setdefault(m, []).append(cat.value)

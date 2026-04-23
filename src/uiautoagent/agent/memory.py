@@ -89,7 +89,9 @@ class TaskMemory:
 
         # 步骤1：字符串完全匹配
         exact_matches = [
-            m for m in memories_snapshot if m["success"] and m["task"] == task
+            m
+            for m in memories_snapshot
+            if m["success"] and (m["task"] == task or m.get("original_task") == task)
         ]
         if exact_matches:
             print(f"💡 找到完全相同的任务 ({len(exact_matches)}个)")
@@ -104,7 +106,12 @@ class TaskMemory:
 
             # 构建历史任务列表（只返回成功任务）
             successful_tasks = [
-                {"index": i, "task": m["task"], "summary": m.get("summary", "")}
+                {
+                    "index": i,
+                    "task": m["task"],
+                    "original_task": m.get("original_task", m["task"]),
+                    "summary": m.get("summary", ""),
+                }
                 for i, m in enumerate(memories_snapshot)
                 if m["success"]
             ]
@@ -114,7 +121,10 @@ class TaskMemory:
 
             # 构建AI提示
             tasks_list = "\n".join(
-                [f"{i}. {t['task']}" for i, t in enumerate(successful_tasks)]
+                [
+                    f"{i}. {t['task']} (原始: {t['original_task']})"
+                    for i, t in enumerate(successful_tasks)
+                ]
             )
 
             prompt = f"""你是一个任务相似度分析专家。请从以下历史任务列表中，找出与当前任务最相似的{limit}个任务。
@@ -175,6 +185,7 @@ class TaskMemory:
         task: str,
         history: list[TaskStep],
         success: bool,
+        original_task: str,
         summary: str | None = None,
     ):
         """
@@ -185,9 +196,11 @@ class TaskMemory:
             history: 执行历史
             success: 是否成功
             summary: Markdown格式的任务总结
+            original_task: 用户原始输入的任务描述
         """
         memory = {
             "task": task,
+            "original_task": original_task,
             "success": success,
             "timestamp": datetime.now().isoformat(),
             "total_steps": len(history),
@@ -203,7 +216,7 @@ class TaskMemory:
         if not similar_tasks:
             return "（无相关历史任务）"
 
-        lines = ["## 相似历史任务经验参考"]
+        lines = ["## 相似历史任务经验参考", "<historical_tasks>"]
         for i, task_mem in enumerate(similar_tasks, 1):
             status = "✅ 成功" if task_mem["success"] else "❌ 失败"
             lines.append(f"\n### {i}. {task_mem['task']} - {status}")
@@ -216,10 +229,10 @@ class TaskMemory:
                 lines.append("- 无总结信息")
 
         # 在末尾添加过期提示
+        lines.append("</historical_tasks>")
         lines.append(
             "\n**⚠️ 注意: 以上经验可能随APP更新失效，请根据当前屏幕实际情况灵活调整**"
         )
-
         return "\n".join(lines)
 
 
