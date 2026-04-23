@@ -14,6 +14,7 @@ from uiautoagent.agent.memory import TaskMemory, get_task_memory
 from uiautoagent.agent.plan import (
     Action,
     DoneParams,
+    TaskProposal,
     get_action_examples_prompt,
     parse_plan_response,
 )
@@ -238,7 +239,11 @@ def get_ai_action(system_prompt: str, user_prompt: str, screenshot_b64: str) -> 
 
 
 def handle_task_status(
-    action: Action, agent: DeviceAgent, task: str, task_memory: TaskMemory
+    action: Action,
+    agent: DeviceAgent,
+    task: str,
+    task_memory: TaskMemory,
+    original_task: str | None = None,
 ) -> TaskResult | None:
     """
     处理任务状态并保存记忆
@@ -260,7 +265,13 @@ def handle_task_status(
 
         # 先保存任务记忆（会调用summarize，产生token）
         summary = summarize_task(task, agent.history, success=True)
-        task_memory.save_task(task, agent.history, success=True, summary=summary)
+        task_memory.save_task(
+            task,
+            agent.history,
+            success=True,
+            summary=summary,
+            original_task=original_task,
+        )
         print("💾 已保存任务记忆")
 
         # 然后保存历史和打印统计（包含summarize的token）
@@ -274,7 +285,13 @@ def handle_task_status(
 
         # 先保存任务记忆（会调用summarize，产生token）
         summary = summarize_task(task, agent.history, success=False)
-        task_memory.save_task(task, agent.history, success=False, summary=summary)
+        task_memory.save_task(
+            task,
+            agent.history,
+            success=False,
+            summary=summary,
+            original_task=original_task,
+        )
 
         # 然后保存历史和打印统计（包含summarize的token）
         agent.save_history()
@@ -298,14 +315,14 @@ def handle_ai_error(agent: DeviceAgent, error: Exception):
 
 
 def execute_ai_task(
-    agent: DeviceAgent, task: str, user_context: str | None = None
+    agent: DeviceAgent, proposal: TaskProposal, user_context: str | None = None
 ) -> TaskResult:
     """
     使用AI自主执行任务，支持任务记忆复用
 
     Args:
         agent: 设备Agent
-        task: 任务描述
+        proposal: 任务提案（包含原始任务和澄清后的任务）
         user_context: 用户提供的任务上下文
 
     Returns:
@@ -315,7 +332,7 @@ def execute_ai_task(
 
     # 获取任务记忆
     task_memory = get_task_memory()
-    similar_tasks = task_memory.find_similar_tasks(task)
+    similar_tasks = task_memory.find_similar_tasks(proposal.clarified_task)
 
     if similar_tasks:
         print(f"💡 找到 {len(similar_tasks)} 个相似历史任务，将作为参考:")
@@ -341,7 +358,10 @@ def execute_ai_task(
         # 构建用户消息（包含历史任务参考和任务上下文）
         memory_reference = task_memory.format_for_ai(similar_tasks)
         user_prompt = build_user_prompt_with_memory(
-            task, ai_context, memory_reference, user_context=user_context
+            proposal.clarified_task,
+            ai_context,
+            memory_reference,
+            user_context=user_context,
         )
 
         # 调用AI决策
@@ -373,7 +393,13 @@ def execute_ai_task(
             agent._append_step_log(task_step)
 
             # 检查任务状态
-            result = handle_task_status(action, agent, task, task_memory)
+            result = handle_task_status(
+                action,
+                agent,
+                proposal.clarified_task,
+                task_memory,
+                original_task=proposal.original_task,
+            )
             if result is not None:
                 return result
 
@@ -390,7 +416,12 @@ def execute_ai_task(
     agent.print_summary()
 
     # 保存未完成任务记忆
-    task_memory.save_task(task, agent.history, success=False)
+    task_memory.save_task(
+        proposal.clarified_task,
+        agent.history,
+        success=False,
+        original_task=proposal.original_task,
+    )
 
     return TaskResult(success=False, result=f"达到最大步数限制 ({max_steps})")
 
@@ -460,13 +491,18 @@ def run_ai_task(
     # 用AI澄清任务描述
     from uiautoagent.agent.ai_utils import clarify_task
 
+    original_task = task  # 保存原始输入
     task = clarify_task(task)
+
+    # 创建任务提案
+    proposal = TaskProposal(original_task=original_task, clarified_task=task)
+    agent.proposal = proposal
 
     print("🤖 AI将自主分析屏幕并决策每一步操作...\n")
 
     # 执行AI自主任务
     try:
-        return execute_ai_task(agent, task, user_context=context)
+        return execute_ai_task(agent, proposal, user_context=context)
     except Exception as e:
         print(f"❌ 任务执行出错: {e}")
         return TaskResult(success=False, result=str(e))

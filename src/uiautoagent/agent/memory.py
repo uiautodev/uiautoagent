@@ -176,6 +176,7 @@ class TaskMemory:
         history: list[TaskStep],
         success: bool,
         summary: str | None = None,
+        original_task: str | None = None,
     ):
         """
         保存任务记忆
@@ -185,6 +186,7 @@ class TaskMemory:
             history: 执行历史
             success: 是否成功
             summary: Markdown格式的任务总结
+            original_task: 用户原始输入的任务描述
         """
         memory = {
             "task": task,
@@ -193,6 +195,9 @@ class TaskMemory:
             "total_steps": len(history),
             "summary": summary or "",
         }
+
+        if original_task is not None:
+            memory["original_task"] = original_task
 
         with self._lock:
             self._memories.append(memory)
