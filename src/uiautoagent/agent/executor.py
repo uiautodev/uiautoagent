@@ -9,11 +9,12 @@ from pydantic import BaseModel, ConfigDict
 
 from uiautoagent import Category, chat_completion
 from uiautoagent.agent import AgentConfig, DeviceAgent, ActionType
-from uiautoagent.agent.ai_utils import summarize_task
+from uiautoagent.agent.ai_utils import compress_markdown, summarize_task
 from uiautoagent.agent.memory import TaskMemory, get_task_memory
 from uiautoagent.agent.plan import (
     Action,
     DoneParams,
+    HistoryEntry,
     TaskProposal,
     get_action_examples_prompt,
     parse_plan_response,
@@ -88,21 +89,21 @@ def get_system_prompt() -> str:
 """
 
 
-def build_history_summary(history: list) -> str:
+def build_history_summary(history: list[HistoryEntry]) -> str:
     """构建历史摘要字符串"""
     if not history:
         return "（这是第一步，无历史记录）"
     lines = []
     for h in history:
-        action = h["action"]
-        step_lines = [f"- step: {h['step']}"]
-        if action.get("log"):
-            step_lines.append(f"  log: {action['log']}")
-        if action.get("thought"):
-            step_lines.append(f"  thought: {action['thought']}")
-        step_lines.append(f"  result: {'成功' if h['success'] else '失败'}")
-        if h.get("image_similarity") is not None:
-            sim = h["image_similarity"]
+        action = h.action
+        step_lines = [f"- step_number: {h.step_number}"]
+        if action.log:
+            step_lines.append(f"  log: {action.log}")
+        if action.thought:
+            step_lines.append(f"  thought: {action.thought}")
+        step_lines.append(f"  result: {'成功' if h.success else '失败'}")
+        if h.image_similarity is not None:
+            sim = h.image_similarity
             if sim > 0.95:
                 step_lines.append("  similarity: 界面几乎无变化")
             elif sim > 0.85:
@@ -320,6 +321,7 @@ def execute_ai_task(
             memory_reference,
             user_context=user_context,
         )
+        user_prompt = compress_markdown(user_prompt)
 
         # 调用AI决策
         try:

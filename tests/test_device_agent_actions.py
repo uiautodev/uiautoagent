@@ -95,7 +95,7 @@ def test_long_press_by_bbox(tmp_path):
     assert step.success is True
     # bbox [100,200,300,400] -> 实际坐标: (10,20,30,40), center=(20,30)
     assert ("swipe", 20, 30, 20, 30, 900) in controller.calls
-    assert step.observation == "已长按: 确定按钮 (900ms)"
+    assert step.observation == "长按: 确定按钮 (900ms)"
 
 
 def test_app_reboot_action(tmp_path):
@@ -124,4 +124,4 @@ def test_app_reboot_action(tmp_path):
     stop_idx = controller.calls.index(("app_stop", "com.tencent.mm"))
     launch_idx = controller.calls.index(("app_launch", "com.tencent.mm"))
     assert stop_idx < launch_idx, "app_stop should be called before app_launch"
-    assert step.observation == "已重启应用: com.tencent.mm"
+    assert step.observation == "重启应用: com.tencent.mm"

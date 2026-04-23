@@ -233,6 +233,18 @@ class Action(BaseModel):
         return str(self.type)
 
 
+class HistoryEntry(BaseModel):
+    """历史步骤条目 - 传递给AI的上下文信息"""
+
+    step_number: int = Field(..., description="步骤编号")
+    action: Action = Field(..., description="执行的动作")
+    observation: str = Field(default="", description="执行后的观察结果")
+    success: bool = Field(..., description="是否执行成功")
+    image_similarity: float | None = Field(
+        default=None, description="与上一步截图的相似度"
+    )
+
+
 def _generate_action_doc(params_cls: type[BaseModel]) -> str:
     """从 Params 模型定义生成单个操作的 params 文档"""
     lines = []

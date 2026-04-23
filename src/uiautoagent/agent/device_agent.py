@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from uiautoagent.controller.base import DeviceController, SwipeDirection
 from uiautoagent.types import TokenUsage
 from uiautoagent.detector import BBox
+from uiautoagent.agent.plan import HistoryEntry
 from uiautoagent.agent.plan import (
     Action,
     ActionType,
@@ -332,90 +333,70 @@ class DeviceAgent:
         x, y = xy
         return int(x * w / 1000), int(y * h / 1000)
 
-    def _execute_action(self, action: Action, screenshot_path: Path) -> str:
-        """执行动作并返回观察结果"""
-        try:
-            if action.type == ActionType.TAP:
-                assert isinstance(action.params, TapParams)
-                target = action.params.target
-                if not action.params.bbox:
-                    return f"未提供点击坐标: {target}"
-                actual_bbox = self._normalized_bbox_to_actual(
-                    action.params.bbox, screenshot_path
+    def _execute_action(self, action: Action, screenshot_path: Path) -> None:
+        """执行动作，失败时抛出异常"""
+        if action.type == ActionType.TAP:
+            assert isinstance(action.params, TapParams)
+            if not action.params.bbox:
+                raise ValueError(f"未提供点击坐标: {action.params.target}")
+            actual_bbox = self._normalized_bbox_to_actual(
+                action.params.bbox, screenshot_path
+            )
+            self.controller.tap_bbox(actual_bbox)
+
+        elif action.type == ActionType.LONG_PRESS:
+            assert isinstance(action.params, LongPressParams)
+            if not action.params.bbox:
+                raise ValueError(f"未提供长按坐标: {action.params.target}")
+            actual_bbox = self._normalized_bbox_to_actual(
+                action.params.bbox, screenshot_path
+            )
+            x, y = actual_bbox.center
+            self.controller.long_press(x, y, action.params.long_press_ms)
+
+        elif action.type == ActionType.INPUT:
+            assert isinstance(action.params, InputParams)
+            self.controller.input_text(action.params.text)
+
+        elif action.type == ActionType.SWIPE:
+            assert isinstance(action.params, SwipeParams)
+            if action.params.swipe_start_xy and action.params.swipe_end_xy:
+                x1, y1 = self._normalized_xy_to_actual(
+                    action.params.swipe_start_xy, screenshot_path
                 )
-                self.controller.tap_bbox(actual_bbox)
-                return f"已点击: {target}"
-
-            elif action.type == ActionType.LONG_PRESS:
-                assert isinstance(action.params, LongPressParams)
-                target = action.params.target
-                long_press_ms = action.params.long_press_ms
-                if not action.params.bbox:
-                    return f"未提供长按坐标: {target}"
-                actual_bbox = self._normalized_bbox_to_actual(
-                    action.params.bbox, screenshot_path
+                x2, y2 = self._normalized_xy_to_actual(
+                    action.params.swipe_end_xy, screenshot_path
                 )
-                x, y = actual_bbox.center
-                self.controller.long_press(x, y, long_press_ms)
-                return f"已长按: {target} ({long_press_ms}ms)"
+                self.controller.swipe(x1, y1, x2, y2)
+            elif action.params.direction:
+                self.controller.swipe_direction(action.params.direction)
+            else:
+                raise ValueError("未提供滑动参数（方向或坐标）")
 
-            elif action.type == ActionType.INPUT:
-                assert isinstance(action.params, InputParams)
-                text = action.params.text
-                self.controller.input_text(text)
-                return f"已输入: {text}"
+        elif action.type == ActionType.BACK:
+            self.controller.back()
 
-            elif action.type == ActionType.SWIPE:
-                assert isinstance(action.params, SwipeParams)
-                if action.params.swipe_start_xy and action.params.swipe_end_xy:
-                    x1, y1 = self._normalized_xy_to_actual(
-                        action.params.swipe_start_xy, screenshot_path
-                    )
-                    x2, y2 = self._normalized_xy_to_actual(
-                        action.params.swipe_end_xy, screenshot_path
-                    )
-                    self.controller.swipe(x1, y1, x2, y2)
-                    return f"已滑动: ({x1},{y1}) -> ({x2},{y2})"
-                elif action.params.direction:
-                    self.controller.swipe_direction(action.params.direction)
-                    return f"已向{action.params.direction}滑动"
-                return "未提供滑动参数（方向或坐标）"
+        elif action.type == ActionType.WAIT:
+            assert isinstance(action.params, WaitParams)
+            time.sleep(action.params.wait_ms / 1000)
 
-            elif action.type == ActionType.BACK:
-                self.controller.back()
-                return "已点击返回键"
+        elif action.type == ActionType.APP_LAUNCH:
+            assert isinstance(action.params, AppIdParams)
+            self.controller.app_launch(action.params.app_id)
 
-            elif action.type == ActionType.WAIT:
-                assert isinstance(action.params, WaitParams)
-                wait_ms = action.params.wait_ms
-                time.sleep(wait_ms / 1000)
-                return f"已等待 {wait_ms}ms"
+        elif action.type == ActionType.APP_STOP:
+            assert isinstance(action.params, AppIdParams)
+            self.controller.app_stop(action.params.app_id)
 
-            elif action.type == ActionType.APP_LAUNCH:
-                assert isinstance(action.params, AppIdParams)
-                app_id = action.params.app_id
-                self.controller.app_launch(app_id)
-                return f"已启动应用: {app_id}"
+        elif action.type == ActionType.APP_REBOOT:
+            assert isinstance(action.params, AppIdParams)
+            self.controller.app_reboot(action.params.app_id)
 
-            elif action.type == ActionType.APP_STOP:
-                assert isinstance(action.params, AppIdParams)
-                app_id = action.params.app_id
-                self.controller.app_stop(app_id)
-                return f"已停止应用: {app_id}"
+        elif action.type in (ActionType.DONE, ActionType.FAIL):
+            pass
 
-            elif action.type == ActionType.APP_REBOOT:
-                assert isinstance(action.params, AppIdParams)
-                app_id = action.params.app_id
-                self.controller.app_reboot(app_id)
-                return f"已重启应用: {app_id}"
-
-            elif action.type in (ActionType.DONE, ActionType.FAIL):
-                return action.thought or ""
-
-            return f"未知动作类型: {action.type}"
-
-        except Exception as e:
-            return f"执行出错: {e}"
+        else:
+            raise ValueError(f"未知动作类型: {action.type}")
 
     def step(
         self,
@@ -447,14 +428,10 @@ class DeviceAgent:
             self.controller.last_detail = ActionDetail()
 
         # 执行动作
-        observation = self._execute_action(action, screenshot_path)
+        self._execute_action(action, screenshot_path)
 
-        # 判断是否成功
-        success = (
-            not observation.startswith("未找到")
-            and not observation.startswith("执行出错")
-            and action.type != ActionType.FAIL
-        )
+        # 判断是否成功（_execute_action 抛异常说明失败，DONE/FAIL 由调用方处理）
+        success = action.type != ActionType.FAIL
 
         # 操作后截图和相似度计算（仅对会产生界面变化的操作）
         screenshot_after_path: str | None = None
@@ -464,19 +441,6 @@ class DeviceAgent:
             screenshot_after_path, image_similarity = self._compare_screenshots(
                 screenshot_path
             )
-            if image_similarity is not None:
-                from uiautoagent.agent.image_similarity import format_similarity_change
-
-                # action.type 可能是字符串或 ActionType 枚举
-                action_type_str = (
-                    action.type.value
-                    if isinstance(action.type, ActionType)
-                    else action.type
-                )
-                similarity_info = format_similarity_change(
-                    image_similarity, action_type_str
-                )
-                observation = f"{observation} | {similarity_info}"
         elif self._should_capture_after(action) and success:
             # 不需要计算相似度，但需要截图供下一步复用
             after_path = self._take_screenshot()
@@ -491,7 +455,7 @@ class DeviceAgent:
         step = self._create_task_step(
             action=action,
             screenshot_path=screenshot_path,
-            observation=observation,
+            observation=str(action),
             success=success,
             elapsed=elapsed,
             screenshot_after_path=screenshot_after_path,
@@ -730,13 +694,13 @@ class DeviceAgent:
         return {
             "step_count": self.step_count,
             "history": [
-                {
-                    "step": s.step_number,
-                    "action": s.action.model_dump(),
-                    "observation": s.observation,
-                    "success": s.success,
-                    "image_similarity": s.image_similarity,
-                }
+                HistoryEntry(
+                    step_number=s.step_number,
+                    action=s.action,
+                    observation=s.observation,
+                    success=s.success,
+                    image_similarity=s.image_similarity,
+                )
                 for s in self.history
             ],
             "device_info": self.controller.get_device_info(),

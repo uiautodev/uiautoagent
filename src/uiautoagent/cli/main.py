@@ -133,13 +133,35 @@ def demo_find_and_click(
         controller = AndroidController(devices[0])
     agent = DeviceAgent(controller)
 
-    # 查找并点击元素
+    # 先截图，再用 detect_element 检测目标元素
+    screenshot_path = agent.get_current_screenshot()
+    from uiautoagent.detector import detect_element
+
+    result = detect_element(screenshot_path, target)
+    if not result.found or not result.bbox:
+        print(f"❌ 未找到目标元素: {target}")
+        agent.save_history()
+        return
+
+    # 将实际像素 bbox 转为 1000x1000 归一化坐标
+    from PIL import Image
+
+    img = Image.open(screenshot_path)
+    w, h = img.size
+    norm_bbox = [
+        int(result.bbox.x1 * 1000 / w),
+        int(result.bbox.y1 * 1000 / h),
+        int(result.bbox.x2 * 1000 / w),
+        int(result.bbox.y2 * 1000 / h),
+    ]
+
     agent.step(
         Action(
             type=ActionType.TAP,
             thought=f"查找并点击{target}",
-            params=TapParams(target=target),
-        )
+            params=TapParams(target=target, bbox=norm_bbox),
+        ),
+        screenshot_path=screenshot_path,
     )
 
     agent.save_history()

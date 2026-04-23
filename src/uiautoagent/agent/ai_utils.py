@@ -1,6 +1,7 @@
 """AI 辅助函数 - 任务总结、澄清等"""
 
 from __future__ import annotations
+import re
 
 from uiautoagent.agent.device_agent import ActionType, TaskStep
 
@@ -81,3 +82,22 @@ def clarify_task(task: str) -> str:
     except Exception as e:
         print(f"⚠️  任务澄清失败，使用原始描述: {e}")
         return task
+
+
+def compress_markdown(md: str) -> str:
+    """压缩 Markdown 内容，移除多余空行和代码块标记"""
+    # 移除代码块标记
+    if md.startswith("```"):
+        md = re.sub(r"^```[\w]*\n", "", md)  # 移除开头的```和可选的语言标记
+        md = re.sub(r"\n```\s*$", "", md)  # 移除结尾的```
+
+    # 多个空行 -> 一个
+    md = re.sub(r"\n{3,}", "\n\n", md)
+
+    # 列表之间的空行去掉
+    md = re.sub(r"^(\s*[-*+] .+)\n+(?=\s*[-*+] )", r"\1\n", md, flags=re.MULTILINE)
+
+    # 数字列表
+    md = re.sub(r"^(\s*\d+\. .+)\n+(?=\s*\d+\. )", r"\1\n", md, flags=re.MULTILINE)
+
+    return md.strip()
