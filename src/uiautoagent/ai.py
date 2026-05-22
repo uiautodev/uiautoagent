@@ -12,9 +12,12 @@ from typing import Any
 
 import dictlog
 import httpx
-from openai import OpenAI
+from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel, Field
+
+# 可重试的瞬态错误（换一个候选模型可能成功）
+_RETRYABLE_ERRORS = (APIConnectionError, APITimeoutError, RateLimitError)
 
 # 模块级 logger
 log = dictlog.get_logger(__name__)
@@ -41,6 +44,13 @@ def _get_env(key: str, default: str | None = None) -> str | None:
     return os.getenv(f"UIAUTO_{key}", os.getenv(key, default))
 
 
+def _parse_model_list(value: str | None) -> list[str]:
+    """解析逗号分隔的模型配置。"""
+    if not value:
+        return []
+    return [model.strip() for model in value.split(",") if model.strip()]
+
+
 class Category(str, Enum):
     """AI 调用场景分类
 
@@ -53,11 +63,11 @@ class Category(str, Enum):
 
 
 # 不同场景的模型配置
-_MODEL_CONFIG: dict[Category, str] = {
-    Category.VISION: _get_env("MODEL_VISION") or "",
-    Category.TEXT: _get_env("MODEL_TEXT") or "",
+_MODEL_CONFIG: dict[Category, list[str]] = {
+    Category.VISION: _parse_model_list(_get_env("MODEL_VISION")),
+    Category.TEXT: _parse_model_list(_get_env("MODEL_TEXT")),
 }
-_DEFAULT_MODEL = _get_env("MODEL_NAME", "gpt-4o")
+_DEFAULT_MODELS = _parse_model_list(_get_env("MODEL_NAME")) or ["doubao-seed-2.0-pro"]
 
 
 class TokenStats(BaseModel):
@@ -205,37 +215,42 @@ def _get_ai_client() -> OpenAI:
     )
 
 
-def get_ai_model(category: Category | str | None = None) -> str:
+def _normalize_model_candidates(model: str | list[str] | None) -> list[str]:
+    """规范化候选模型列表。"""
+    if model is None:
+        return []
+    if isinstance(model, str):
+        return _parse_model_list(model)
+    return _parse_model_list(",".join(model))
+
+
+def get_ai_model(category: Category | str | None = None) -> list[str]:
     """
-    获取 AI 模型名称
+    获取 AI 候选模型列表
 
     Args:
         category: 可选的场景分类，用于获取特定场景的模型。
-                  如果为 None，返回默认模型。
+                  如果为 None，返回默认模型列表。
                   支持 Category 枚举值或对应的字符串值
 
     Returns:
-        模型名称，如 "gpt-4o"
+        模型名称列表，如 ["gpt-4o", "gpt-4o-mini"]
 
     Example:
         >>> from uiautoagent.ai import get_ai_model, Category
-        >>> get_ai_model()  # 获取默认模型
-        'gpt-4o'
-        >>> get_ai_model(Category.VISION)  # 获取视觉场景的模型
-        'gpt-4o-mini'
+        >>> get_ai_model()  # 获取默认模型列表
+        ['gpt-4o']
+        >>> get_ai_model(Category.VISION)  # 获取视觉场景的模型列表
+        ['gpt-4o-mini', 'gpt-4o']
         >>> get_ai_model("vision")  # 也支持字符串
-        'gpt-4o-mini'
+        ['gpt-4o-mini', 'gpt-4o']
     """
     if category:
-        # 如果是 Category 枚举，转换为字符串值
-        category_value = category.value if isinstance(category, Category) else category
-        # 查找对应的 Category 枚举
-        for cat in Category:
-            if cat.value == category_value and cat in _MODEL_CONFIG:
-                model = _MODEL_CONFIG[cat]
-                if model:
-                    return model
-    return _DEFAULT_MODEL or "gpt-4o"
+        cat = category if isinstance(category, Category) else Category(category)
+        models = _MODEL_CONFIG.get(cat)
+        if models:
+            return models.copy()
+    return _DEFAULT_MODELS.copy()
 
 
 def get_ai_config() -> dict:
@@ -248,8 +263,8 @@ def get_ai_config() -> dict:
     return {
         "base_url": _get_env("BASE_URL", "https://api.openai.com/v1")
         or "https://api.openai.com/v1",
-        "model": _DEFAULT_MODEL,
-        "timeout": int(_get_env("REQUEST_TIMEOUT", "30") or "30"),
+        "models": _DEFAULT_MODELS.copy(),
+        "timeout": int(_get_env("REQUEST_TIMEOUT", "60") or "60"),
     }
 
 
@@ -278,40 +293,53 @@ def check_model_available(model: str) -> bool:
 
 def check_all_models_available() -> bool:
     """
-    检查所有配置模型是否可用（默认模型 + 各 category 模型，去重）
+    检查所有已配置场景是否至少存在一个可用模型
 
     Returns:
-        True 表示全部可用，False 表示有模型不可用
+        True 表示所有场景都有可用模型，False 表示存在不可用场景
     """
-    # 收集所有唯一的模型名称
-    models: dict[str, list[str]] = {}  # model -> [label, ...]
-    default_model = _DEFAULT_MODEL or "gpt-4o"
-    models.setdefault(default_model, []).append("default")
-    for cat, m in _MODEL_CONFIG.items():
-        if m:
-            models.setdefault(m, []).append(cat.value)
+    model_groups: dict[str, list[str]] = {"default": _DEFAULT_MODELS.copy()}
+    for cat, models in _MODEL_CONFIG.items():
+        if models:
+            model_groups[cat.value] = models.copy()
 
-    log.info(f"检查模型可用性（共 {len(models)} 个）...", total=len(models))
+    checked: dict[str, bool] = {}
+    total_candidates = sum(len(models) for models in model_groups.values())
+    log.info(
+        f"检查模型可用性（共 {total_candidates} 个候选）...", total=total_candidates
+    )
+
     all_ok = True
-    for model, labels in models.items():
-        label = ", ".join(labels)
-        ok = check_model_available(model)
-        status = "✅" if ok else "❌"
-        log.info(
-            f"  {status} {model!r} [{label}]",
-            model=model,
-            label=label,
-            status=status,
-            available=ok,
-        )
-        if not ok:
+    for label, candidates in model_groups.items():
+        group_ok = False
+        for index, candidate in enumerate(candidates, start=1):
+            if candidate not in checked:
+                checked[candidate] = check_model_available(candidate)
+
+            ok = checked[candidate]
+            status = "✅" if ok else "❌"
+            log.info(
+                f"  {status} {candidate!r} [{label} #{index}]",
+                model=candidate,
+                label=label,
+                index=index,
+                status=status,
+                available=ok,
+            )
+            if ok:
+                group_ok = True
+                break
+
+        if not group_ok:
             all_ok = False
+            log.error("当前场景没有可用模型", label=label, candidates=candidates)
+
     return all_ok
 
 
 def chat_completion(
-    category: Category | str,
-    model: str | None = None,
+    category: Category,
+    model: str | list[str] | None = None,
     **kwargs: Any,
 ) -> ChatCompletion:
     """
@@ -322,10 +350,10 @@ def chat_completion(
 
     Args:
         category: 用途分类，用于 token 统计和模型选择。
-                  支持 Category 枚举值或对应的字符串值
-                  如果配置了对应的环境变量（如 MODEL_VISION），将使用该模型，
-                  否则使用默认模型（MODEL_NAME）。
-        model: 可选，显式指定模型。如果提供，将覆盖 category 的模型选择。
+                  如果配置了对应的环境变量（如 MODEL_VISION），将使用该场景的候选模型，
+                  否则使用默认模型列表（MODEL_NAME）。
+        model: 可选，显式指定模型。如果提供，将覆盖 category 的模型选择；
+               支持单个模型、逗号分隔字符串或模型列表。
         **kwargs: 传递给 chat.completions.create 的所有参数，包括：
             - messages: 消息列表
             - max_tokens: 最大生成 token 数
@@ -335,44 +363,36 @@ def chat_completion(
 
     Returns:
         ChatCompletion: API 响应对象
-
-    Example:
-        >>> from uiautoagent.ai import chat_completion, Category
-        >>> # 使用 Category 枚举（推荐）
-        >>> response = chat_completion(
-        ...     category=Category.VISION,
-        ...     messages=[{"role": "user", "content": "Hello"}],
-        ...     max_tokens=100,
-        ... )
-        >>> # 也支持字符串（向后兼容）
-        >>> response = chat_completion(
-        ...     category="plan",
-        ...     messages=[{"role": "user", "content": "Hello"}],
-        ...     max_tokens=100,
-        ... )
-        >>> # 显式指定模型
-        >>> response = chat_completion(
-        ...     category=Category.VISION,
-        ...     model="gpt-4o",
-        ...     messages=[{"role": "user", "content": "Hello"}],
-        ...     max_tokens=100,
-        ... )
-        >>> content = response.choices[0].message.content
     """
     client = _get_ai_client()
     tracker = TokenTracker(category)
+    model_candidates = (
+        get_ai_model(category) if model is None else _normalize_model_candidates(model)
+    )
+    if not model_candidates:
+        raise ValueError("未配置可用的模型")
 
-    # 如果没有显式指定模型，使用 category 对应的模型
-    if model is None:
-        model = get_ai_model(category)
-
-    # 注入 session_id（合并到 extra_body，不覆盖调用方已设置的值）
     extra_body = kwargs.pop("extra_body", {}) or {}
     extra_body.setdefault("session_id", SESSION_ID)
 
-    response = client.chat.completions.create(
-        model=model, extra_body=extra_body, **kwargs
-    )
-    tracker.record(response)
+    last_error: Exception | None = None
+    for index, candidate in enumerate(model_candidates, start=1):
+        try:
+            response = client.chat.completions.create(
+                model=candidate, extra_body=extra_body, **kwargs
+            )
+            tracker.record(response)
+            return response
+        except _RETRYABLE_ERRORS as e:
+            last_error = e
+            if index < len(model_candidates):
+                log.warning(
+                    "模型调用失败，尝试下一个候选模型",
+                    model=candidate,
+                    next_model=model_candidates[index],
+                    category=tracker.category,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
 
-    return response
+    raise last_error  # type: ignore[misc]

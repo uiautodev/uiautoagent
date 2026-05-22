@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 import dictlog
 
@@ -13,16 +14,13 @@ from uiautoagent.ai import check_all_models_available
 from uiautoagent.controller import AndroidController, IOSController
 
 # 默认 logger，main 函数中会根据参数调整级别
-log = dictlog.get_logger()
+slog = dictlog.get_logger(__name__)
 
 
 def demo_manual_control(platform: str = "android", serial: str | None = None):
     """演示手动控制Agent执行任务（适用于已知步骤的任务）"""
-    pass
-
-    log.info("=" * 50)
+    log = slog.bind(platform=platform, serial=serial)
     log.info("📱 设备Agent - 手动控制模式")
-    log.info("=" * 50)
 
     # 检查设备
     if platform == "ios":
@@ -125,11 +123,8 @@ def demo_find_and_click(
     target: str = "返回按钮", platform: str = "android", serial: str | None = None
 ):
     """演示简单的查找并点击"""
-    pass
-
-    log.info("=" * 50)
+    log = slog.bind(target=target, platform=platform, serial=serial)
     log.info("📱 设备Agent - 查找并点击")
-    log.info("=" * 50)
 
     if platform == "ios":
         if serial:
@@ -189,6 +184,7 @@ def demo_find_and_click(
 
 def _run_extract(args: argparse.Namespace):
     """执行 extract 模式：从图片中提取内容"""
+    log = slog.bind(mode="extract", image=args.image, query=args.query)
     import json as _json
 
     from uiautoagent.detector.content_extractor import extract_content
@@ -286,8 +282,8 @@ def main():
     )
     args = parser.parse_args()
 
-    # 设置日志级别
-    log.level = getattr(dictlog, args.log_level)
+    log = slog.bind(mode=args.mode, task=args.task, platform=args.platform)
+    slog.level = getattr(dictlog, args.log_level)
 
     if not check_all_models_available():
         return
@@ -297,8 +293,6 @@ def main():
     if args.context:
         context = args.context.strip()
     elif args.context_file:
-        from pathlib import Path
-
         kpath = Path(args.context_file)
         if not kpath.exists():
             log.error("任务上下文文件不存在", file=str(kpath))

@@ -8,10 +8,10 @@ AI 驱动的 UI 自动化框架，支持视觉定位和自主任务执行。
 - 🤖 自主规划执行任务
 - 🧠 任务记忆学习
 - 📱 Android / iOS 设备支持
-- 🔧 灵活的模型配置（支持不同场景使用不同模型）
+- 🔧 灵活的模型配置（支持不同场景使用不同模型，并可按顺序回退）
 - 📊 可视化 HTML 报告（标注截图、token 消耗、耗时）
 - 📸 AI 图片内容提取（结构化 JSON 输出）
-- 🔍 启动时自动检查模型可用性
+- 🔍 启动时自动检查模型候选可用性
 - 🖼️ 操作前后截图对比（AI 可根据界面变化判断操作是否生效）
 
 ## 安装
@@ -30,11 +30,11 @@ cp .env.example .env
 # 基础配置（推荐使用 UIAUTO_ 前缀，旧版变量名仍然支持）
 UIAUTO_BASE_URL=--openai-compatable--
 UIAUTO_API_KEY=sk-xxx
-UIAUTO_MODEL_NAME=--suport-vision-model--
+UIAUTO_MODEL_NAME=doubao-seed-2.0-pro,glm-4.6v  # 默认候选模型，按顺序回退
 
 # 可选：为不同场景配置不同的模型
-UIAUTO_MODEL_VISION=         # 视觉模型（规划+检测，需要视觉能力）
-UIAUTO_MODEL_TEXT=           # 文本处理模型（总结、澄清等）
+UIAUTO_MODEL_VISION=doubao-seed-2.0-pro  # 视觉模型候选（规划+检测）
+UIAUTO_MODEL_TEXT=gpt-4o-mini,deepseek-chat          # 文本模型候选（总结、澄清等）
 
 # 代理配置（可选）
 UIAUTO_MODEL_PROXY=http://127.0.0.1:7890
@@ -49,6 +49,8 @@ SESSION_ID=my-session-123   # 默认自动生成 UUID
 ```
 
 > **注意**：环境变量已升级为 `UIAUTO_` 前缀以避免命名冲突。旧版变量名（如 `BASE_URL`、`API_KEY` 等）仍然支持，但推荐使用新的前缀版本。
+>
+> 模型环境变量支持使用逗号分隔多个候选模型，顺序就是回退顺序；当当前模型调用失败时，会自动尝试下一个候选模型。
 
 推荐的模型
 
@@ -61,8 +63,8 @@ SESSION_ID=my-session-123   # 默认自动生成 UUID
 
 | 场景 | 环境变量 | 说明 | 模型要求 |
 |------|----------|------|----------|
-| `VISION` | `UIAUTO_MODEL_VISION` | 视觉模型（规划+检测） | 需要视觉能力 |
-| `TEXT` | `UIAUTO_MODEL_TEXT` | 文本处理（总结、澄清、搜索） | 纯文本，无视觉要求 |
+| `VISION` | `UIAUTO_MODEL_VISION` | 视觉模型候选列表（规划+检测，逗号分隔） | 需要视觉能力 |
+| `TEXT` | `UIAUTO_MODEL_TEXT` | 文本模型候选列表（总结、澄清、搜索，逗号分隔） | 纯文本，无视觉要求 |
 
 ## 快速开始
 
@@ -102,12 +104,14 @@ uv run uiautoagent -m manual  # 手动控制
 - 应用 UI 比较复杂，需要提供元素位置提示
 - 任务需要特定领域的知识（如某个 App 的特殊操作方式）
 
-启动时会自动检查所有配置模型的可用性：
+启动时会自动检查所有配置模型候选的可用性，每个场景至少要有一个候选模型可用：
 
 ```
-🔍 检查模型可用性（共 2 个）...
-  ✅ 'gpt-5.4' [default, vision]
-  ✅ 'gpt-4o-mini' [text]
+🔍 检查模型可用性（共 4 个候选）...
+  ✅ 'glm-4.6v' [default #1]
+  ❌ 'doubao-seed-2.0-pro' [vision #1]
+  ✅ 'glm-5v-turbo' [vision #2]
+  ✅ 'gpt-4o-mini' [text #1]
 ```
 
 ## 任务报告
@@ -229,6 +233,8 @@ response = chat_completion(
     max_tokens=500,
 )
 content = response.choices[0].message.content
+
+# 未显式传 model 时，会按该场景配置的候选模型顺序自动回退
 
 # 视觉场景（需要图片）
 vision_response = chat_completion(
