@@ -577,8 +577,8 @@ class DeviceAgent:
         if self.config.report_dir:
             return
 
-        tasks_dir = Path("uiautoagent_reports")
-        latest_link = tasks_dir / "latest"
+        reports_root = Path("uiautoagent_reports")
+        latest_link = reports_root / "latest"
 
         try:
             # 如果已存在 latest 软链接，先删除

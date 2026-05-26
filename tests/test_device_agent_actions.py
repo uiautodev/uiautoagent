@@ -71,7 +71,7 @@ def test_long_press_by_bbox(tmp_path):
     agent = DeviceAgent(
         controller,
         config=AgentConfig(
-            tasks_dir=str(tmp_path), save_screenshots=False, verbose=False
+            report_dir=str(tmp_path), save_screenshots=False, verbose=False
         ),
     )
 
@@ -102,7 +102,7 @@ def test_app_reboot_action(tmp_path):
     agent = DeviceAgent(
         controller,
         config=AgentConfig(
-            tasks_dir=str(tmp_path), save_screenshots=False, verbose=False
+            report_dir=str(tmp_path), save_screenshots=False, verbose=False
         ),
     )
 
