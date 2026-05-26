@@ -42,6 +42,9 @@ UIAUTO_MODEL_PROXY=http://127.0.0.1:7890
 # 请求超时时间（秒）
 UIAUTO_REQUEST_TIMEOUT=60
 
+# 报告输出目录（可选）
+UIAUTO_REPORT_DIR=/path/to/reports   # 设置后直接写入此目录，不设则输出到 uiautoagent_reports/task_xxx/
+
 # OpenRouter 请求追踪（可选）
 OPENROUTER_SITE_URL=https://yoursite.com
 OPENROUTER_SITE_NAME=YourAppName
@@ -52,19 +55,21 @@ SESSION_ID=my-session-123   # 默认自动生成 UUID
 >
 > 模型环境变量支持使用逗号分隔多个候选模型，顺序就是回退顺序；当当前模型调用失败时，会自动尝试下一个候选模型。
 
-推荐的模型
+### 全部环境变量
 
-- doubao-seed-2.0-pro
-- glm-5v-turbo
-
-其他的欢迎补充
-
-### 场景说明
-
-| 场景 | 环境变量 | 说明 | 模型要求 |
-|------|----------|------|----------|
-| `VISION` | `UIAUTO_MODEL_VISION` | 视觉模型候选列表（规划+检测，逗号分隔） | 需要视觉能力 |
-| `TEXT` | `UIAUTO_MODEL_TEXT` | 文本模型候选列表（总结、澄清、搜索，逗号分隔） | 纯文本，无视觉要求 |
+| 变量名 | 旧版兼容 | 默认值 | 说明 |
+|--------|----------|--------|------|
+| `UIAUTO_BASE_URL` | `BASE_URL` | `https://api.openai.com/v1` | OpenAI 兼容 API 地址 |
+| `UIAUTO_API_KEY` | `API_KEY` | — | API 密钥 |
+| `UIAUTO_MODEL_NAME` | `MODEL_NAME` | `doubao-seed-2.0-pro` | 默认模型候选（逗号分隔，按顺序回退） |
+| `UIAUTO_MODEL_VISION` | `MODEL_VISION` | 同 `MODEL_NAME` | 视觉模型候选（规划+检测，需要视觉能力） |
+| `UIAUTO_MODEL_TEXT` | `MODEL_TEXT` | 同 `MODEL_NAME` | 文本模型候选（总结、澄清、搜索） |
+| `UIAUTO_MODEL_PROXY` | `MODEL_PROXY` | — | HTTP 代理（如 `http://127.0.0.1:7890`） |
+| `UIAUTO_REQUEST_TIMEOUT` | `REQUEST_TIMEOUT` | `60` | 请求超时（秒） |
+| `UIAUTO_REPORT_DIR` | — | — | 报告输出目录。设置后跳过 `task_xxx/` 子目录，直接写入此路径 |
+| `OPENROUTER_SITE_URL` | — | — | OpenRouter 站点 URL（请求追踪） |
+| `OPENROUTER_SITE_NAME` | — | — | OpenRouter 站点名称（请求追踪） |
+| `SESSION_ID` | — | 自动生成 UUID | 会话 ID，用于请求追踪 |
 
 ## 快速开始
 
@@ -116,7 +121,7 @@ uv run uiautoagent -m manual  # 手动控制
 
 ## 任务报告
 
-每次任务执行完成后，会在 `uiautoagent_tasks/task_xxx/` 目录下生成：
+每次任务执行完成后，会在 `uiautoagent_reports/task_xxx/` 目录下生成：
 
 | 文件 | 说明 |
 |------|------|

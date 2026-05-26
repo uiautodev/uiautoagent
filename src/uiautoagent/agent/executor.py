@@ -478,7 +478,7 @@ def run_ai_task(
         model=info["model"],
         width=info["width"],
         height=info["height"],
-        task_dir=agent.task_dir,
+        report_dir=agent.report_dir,
     )
 
     log.info("任务", task=task, has_context=context is not None)

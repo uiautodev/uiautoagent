@@ -12,12 +12,23 @@ from typing import Any
 
 import dictlog
 import httpx
-from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    OpenAI,
+    RateLimitError,
+)
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel, Field
 
 # 可重试的瞬态错误（换一个候选模型可能成功）
-_RETRYABLE_ERRORS = (APIConnectionError, APITimeoutError, RateLimitError)
+_RETRYABLE_ERRORS = (
+    APIConnectionError,
+    APITimeoutError,
+    RateLimitError,
+    InternalServerError,
+)
 
 # 模块级 logger
 log = dictlog.get_logger(__name__)

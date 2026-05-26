@@ -227,6 +227,7 @@ task_*.yaml*
 
 # Task execution directories
 uiautoagent_tasks/
+uiautoagent_reports/
 devimages/
 tasks/
 *.swp

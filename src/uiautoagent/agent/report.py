@@ -122,20 +122,20 @@ def _action_icon(action_type: str) -> str:
 
 def generate_html_report(
     steps: list[TaskStep],
-    task_dir: Path,
+    report_dir: Path,
     task: str | None = None,
 ) -> Path:
     """生成HTML可视化报告
 
     Args:
         steps: 任务步骤列表
-        task_dir: 任务目录
+        report_dir: 报告输出目录
         task: 任务描述
 
     Returns:
         报告文件路径
     """
-    annotated_dir = task_dir / "annotated"
+    annotated_dir = report_dir / "annotated"
     annotated_dir.mkdir(exist_ok=True)
 
     success_count = sum(1 for s in steps if s.success)
@@ -386,6 +386,6 @@ def generate_html_report(
 </body>
 </html>"""
 
-    report_path = task_dir / "report.html"
+    report_path = report_dir / "report.html"
     report_path.write_text(report_html, encoding="utf-8")
     return report_path

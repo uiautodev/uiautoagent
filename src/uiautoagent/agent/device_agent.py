@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Any
 
 import dictlog
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from uiautoagent.controller.base import DeviceController, SwipeDirection
 from uiautoagent.types import TokenUsage
@@ -142,7 +143,9 @@ class AgentConfig(BaseModel):
     """Agent配置"""
 
     max_steps: int = 20  # 最大执行步数
-    tasks_dir: str = "uiautoagent_tasks"  # 任务目录父目录
+    report_dir: str | None = Field(
+        default_factory=lambda: os.getenv("UIAUTO_REPORT_DIR")
+    )  # 报告输出目录，可通过 UIAUTO_REPORT_DIR 环境变量覆盖
     save_screenshots: bool = True
     verbose: bool = True
 
@@ -174,13 +177,18 @@ class DeviceAgent:
         self._last_screenshot_time: float = 0  # 上一步操作后的截图时间戳
         self._screenshot_ttl: float = 1  # 截图有效期（秒）
 
-        # 创建带时间戳的唯一任务目录
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.task_dir = Path(self.config.tasks_dir) / f"task_{timestamp}"
-        self.task_dir.mkdir(parents=True, exist_ok=True)
+        # 创建任务输出目录
+        if self.config.report_dir:
+            self.report_dir = Path(self.config.report_dir)
+            if self.report_dir.exists():
+                self._log(f"⚠️  报告目录已存在，输出文件将被覆盖: {self.report_dir}")
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.report_dir = Path("uiautoagent_reports") / f"task_{timestamp}"
+        self.report_dir.mkdir(parents=True, exist_ok=True)
 
         # 截图子目录
-        self.screenshot_dir = self.task_dir / "screenshots"
+        self.screenshot_dir = self.report_dir / "screenshots"
         self.screenshot_dir.mkdir(exist_ok=True)
 
     def _take_screenshot(self) -> Path:
@@ -479,7 +487,7 @@ class DeviceAgent:
 
     def _append_step_log(self, step: TaskStep) -> None:
         """将单步执行记录实时追加到 log.txt"""
-        log_path = self.task_dir / "log.txt"
+        log_path = self.report_dir / "log.txt"
 
         # 格式化步骤信息
         status = "✅ 成功" if step.success else "❌ 失败"
@@ -517,7 +525,7 @@ class DeviceAgent:
     def save_history(self, path: str | Path | None = None):
         """保存任务历史到JSON文件"""
         if path is None:
-            path = self.task_dir / "history.json"
+            path = self.report_dir / "history.json"
 
         # 从全局TokenTracker获取统计
         from uiautoagent.ai import TokenTracker
@@ -561,14 +569,15 @@ class DeviceAgent:
         """生成HTML可视化报告"""
         from uiautoagent.agent.report import generate_html_report
 
-        report_path = generate_html_report(self.history, self.task_dir, self.task)
+        report_path = generate_html_report(self.history, self.report_dir, self.task)
         self._log(f"📊 HTML报告已保存至: {report_path}")
 
     def _update_latest_symlink(self):
         """创建/更新 latest 软链接指向当前任务目录"""
-        import os
+        if self.config.report_dir:
+            return
 
-        tasks_dir = Path(self.config.tasks_dir)
+        tasks_dir = Path("uiautoagent_reports")
         latest_link = tasks_dir / "latest"
 
         try:
@@ -578,7 +587,7 @@ class DeviceAgent:
 
             # 创建相对路径的软链接（更便携）
             # 获取任务目录名称（如 "task_20240121_123456"）
-            task_dir_name = self.task_dir.name
+            task_dir_name = self.report_dir.name
             os.symlink(task_dir_name, latest_link)
 
             self._log(f"🔗 软链接已更新: {latest_link} -> {task_dir_name}")
@@ -588,7 +597,7 @@ class DeviceAgent:
 
     def _save_text_summary(self):
         """保存可读的文本摘要"""
-        summary_path = self.task_dir / "summary.txt"
+        summary_path = self.report_dir / "summary.txt"
 
         # 从全局TokenTracker获取统计
         from uiautoagent.ai import TokenTracker
