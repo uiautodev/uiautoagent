@@ -1,254 +1,256 @@
 # UIAutoAgent
 
-AI 驱动的 UI 自动化框架，支持视觉定位和自主任务执行。
+[中文文档](README_CN.md)
 
-## 特性
+AI-driven mobile UI automation framework with visual AI element detection and autonomous task execution.
 
-- 🎯 AI 视觉定位元素，无需 DOM
-- 🤖 自主规划执行任务
-- 🧠 任务记忆学习
-- 📱 Android / iOS 设备支持
-- 🔧 灵活的模型配置（支持不同场景使用不同模型，并可按顺序回退）
-- 📊 可视化 HTML 报告（标注截图、token 消耗、耗时）
-- 📸 AI 图片内容提取（结构化 JSON 输出）
-- 🔍 启动时自动检查模型候选可用性
-- 🖼️ 操作前后截图对比（AI 可根据界面变化判断操作是否生效）
+## Features
 
-## 安装
+- AI-powered visual element detection, no DOM required
+- Autonomous task planning and execution
+- Task memory with learning capabilities
+- Android / iOS device support
+- Flexible model configuration (different models per scenario with fallback chain)
+- Visual HTML reports (annotated screenshots, token usage, timing)
+- AI image content extraction (structured JSON output)
+- Startup model availability check for all candidates
+- Before/after screenshot comparison (AI judges whether an action took effect)
+
+## Installation
 
 ```bash
 uv sync
 cp .env.example .env
-# 编辑 .env 配置 API_KEY 和模型
+# Edit .env to configure API_KEY and model
 ```
 
-## 配置
+## Configuration
 
-在 `.env` 文件中配置 OpenAI 兼容的 API：
+Configure an OpenAI-compatible API in `.env`:
 
 ```bash
-# 基础配置（推荐使用 UIAUTO_ 前缀，旧版变量名仍然支持）
+# Core config (UIAUTO_ prefix recommended; legacy variable names still supported)
 UIAUTO_BASE_URL=--openai-compatable--
 UIAUTO_API_KEY=sk-xxx
-UIAUTO_MODEL_NAME=doubao-seed-2.0-pro,glm-4.6v  # 默认候选模型，按顺序回退
+UIAUTO_MODEL_NAME=doubao-seed-2.0-pro,glm-4.6v  # Default model candidates, tried in order
 
-# 可选：为不同场景配置不同的模型
-UIAUTO_MODEL_VISION=doubao-seed-2.0-pro  # 视觉模型候选（规划+检测）
-UIAUTO_MODEL_TEXT=gpt-4o-mini,deepseek-chat          # 文本模型候选（总结、澄清等）
+# Optional: different models per scenario
+UIAUTO_MODEL_VISION=doubao-seed-2.0-pro  # Vision model candidates (planning + detection)
+UIAUTO_MODEL_TEXT=gpt-4o-mini,deepseek-chat          # Text model candidates (summarization, etc.)
 
-# 代理配置（可选）
+# Proxy (optional)
 UIAUTO_MODEL_PROXY=http://127.0.0.1:7890
 
-# 请求超时时间（秒）
+# Request timeout in seconds
 UIAUTO_REQUEST_TIMEOUT=60
 
-# 报告输出目录（可选）
-UIAUTO_REPORT_DIR=/path/to/reports   # 设置后直接写入此目录，不设则输出到 uiautoagent_reports/task_xxx/
+# Report output directory (optional)
+UIAUTO_REPORT_DIR=/path/to/reports   # Reports written directly here; otherwise defaults to uiautoagent_reports/task_xxx/
 
-# OpenRouter 请求追踪（可选）
+# OpenRouter request tracking (optional)
 OPENROUTER_SITE_URL=https://yoursite.com
 OPENROUTER_SITE_NAME=YourAppName
-SESSION_ID=my-session-123   # 默认自动生成 UUID
+SESSION_ID=my-session-123   # Auto-generated UUID if not set
 ```
 
-> **注意**：环境变量已升级为 `UIAUTO_` 前缀以避免命名冲突。旧版变量名（如 `BASE_URL`、`API_KEY` 等）仍然支持，但推荐使用新的前缀版本。
+> **Note**: Environment variables have been upgraded with a `UIAUTO_` prefix to avoid naming conflicts. Legacy variable names (e.g. `BASE_URL`, `API_KEY`) are still supported, but the new prefixed versions are recommended.
 >
-> 模型环境变量支持使用逗号分隔多个候选模型，顺序就是回退顺序；当当前模型调用失败时，会自动尝试下一个候选模型。
+> Model env vars support comma-separated candidate lists; order defines the fallback sequence. When a call fails, the next candidate is tried automatically.
 
-### 全部环境变量
+### All Environment Variables
 
-| 变量名 | 旧版兼容 | 默认值 | 说明 |
-|--------|----------|--------|------|
-| `UIAUTO_BASE_URL` | `BASE_URL` | `https://api.openai.com/v1` | OpenAI 兼容 API 地址 |
-| `UIAUTO_API_KEY` | `API_KEY` | — | API 密钥 |
-| `UIAUTO_MODEL_NAME` | `MODEL_NAME` | `doubao-seed-2.0-pro` | 默认模型候选（逗号分隔，按顺序回退） |
-| `UIAUTO_MODEL_VISION` | `MODEL_VISION` | 同 `MODEL_NAME` | 视觉模型候选（规划+检测，需要视觉能力） |
-| `UIAUTO_MODEL_TEXT` | `MODEL_TEXT` | 同 `MODEL_NAME` | 文本模型候选（总结、澄清、搜索） |
-| `UIAUTO_MODEL_PROXY` | `MODEL_PROXY` | — | HTTP 代理（如 `http://127.0.0.1:7890`） |
-| `UIAUTO_REQUEST_TIMEOUT` | `REQUEST_TIMEOUT` | `60` | 请求超时（秒） |
-| `UIAUTO_REPORT_DIR` | — | — | 报告输出目录。设置后跳过 `task_xxx/` 子目录，直接写入此路径 |
-| `OPENROUTER_SITE_URL` | — | — | OpenRouter 站点 URL（请求追踪） |
-| `OPENROUTER_SITE_NAME` | — | — | OpenRouter 站点名称（请求追踪） |
-| `SESSION_ID` | — | 自动生成 UUID | 会话 ID，用于请求追踪 |
+| Variable | Legacy Fallback | Default | Description |
+|----------|----------------|---------|-------------|
+| `UIAUTO_BASE_URL` | `BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL |
+| `UIAUTO_API_KEY` | `API_KEY` | — | API key |
+| `UIAUTO_MODEL_NAME` | `MODEL_NAME` | `doubao-seed-2.0-pro` | Default model candidates (comma-separated, tried in order) |
+| `UIAUTO_MODEL_VISION` | `MODEL_VISION` | same as `MODEL_NAME` | Vision model candidates (planning + detection, requires vision capability) |
+| `UIAUTO_MODEL_TEXT` | `MODEL_TEXT` | same as `MODEL_NAME` | Text model candidates (summarization, clarification, search) |
+| `UIAUTO_MODEL_PROXY` | `MODEL_PROXY` | — | HTTP proxy (e.g. `http://127.0.0.1:7890`) |
+| `UIAUTO_REQUEST_TIMEOUT` | `REQUEST_TIMEOUT` | `60` | Request timeout in seconds |
+| `UIAUTO_REPORT_DIR` | — | — | Report output directory. When set, reports are written directly here instead of `task_xxx/` subdirectories |
+| `OPENROUTER_SITE_URL` | — | — | OpenRouter site URL (request tracking) |
+| `OPENROUTER_SITE_NAME` | — | — | OpenRouter site name (request tracking) |
+| `SESSION_ID` | — | auto-generated UUID | Session ID for request tracking |
 
-## 快速开始
+## Quick Start
 
 ```bash
-# AI 自主执行任务
-uv run uiautoagent -m ai -t "修改昵称为 kitty"
+# AI autonomous task execution
+uv run uiautoagent -m ai -t "Change nickname to kitty"
 
-# 指定iOS设备
-uv run uiautoagent -m ai -t "修改昵称为 kitty" -p ios
+# Target an iOS device
+uv run uiautoagent -m ai -t "Change nickname to kitty" -p ios
 
-# 提供任务上下文提高成功率
-uv run uiautoagent -m ai -t "修改昵称为 kitty" -cf knowledge.txt
+# Provide task context for higher success rate
+uv run uiautoagent -m ai -t "Change nickname to kitty" -cf knowledge.txt
 
-# 提取图片内容（结构化 JSON）
-uv run uiautoagent -m extract -i screenshot.png -q "提取所有商品价格"
+# Extract image content (structured JSON)
+uv run uiautoagent -m extract -i screenshot.png -q "Extract all product prices"
 
-# 提取并指定输出格式
-uv run uiautoagent -m extract -i screenshot.png -q "提取商品信息" --example '{"name":"商品","price":0}'
+# Extract with output format hint
+uv run uiautoagent -m extract -i screenshot.png -q "Extract product info" --example '{"name":"Product","price":0}'
 
-# 其他模式
-uv run uiautoagent -m find    # 查找并点击
-uv run uiautoagent -m manual  # 手动控制
+# Other modes
+uv run uiautoagent -m find    # Find and click
+uv run uiautoagent -m manual  # Manual control
 ```
 
-### 任务上下文
+### Task Context
 
-通过 `--context-file` (`-cf`) 指定一个文本文件，或通过 `--context` (`-c`) 直接传入文本，为 AI 提供任务相关的背景信息，帮助 AI 更准确地定位元素和规划操作路径。
+Use `--context-file` (`-cf`) to specify a text file, or `--context` (`-c`) to pass text directly, providing background information to help the AI locate elements and plan actions more accurately.
 
-知识示例：
+Example knowledge:
 ```
-微信修改昵称路径：点击底部"我" → 点击头像区域 → 点击"昵称" → 修改后点击"保存"
-设置按钮在右上角，是一个齿轮图标
+Path to change WeChat nickname: tap "Me" at bottom → tap avatar area → tap "Nickname" → edit and tap "Save"
+The settings button is in the top-right corner, a gear icon
 ```
 
-适用于以下场景：
-- 用户知道具体操作路径，希望 AI 直接参考
-- 应用 UI 比较复杂，需要提供元素位置提示
-- 任务需要特定领域的知识（如某个 App 的特殊操作方式）
+Useful when:
+- You know the specific path and want the AI to follow it directly
+- The app UI is complex and needs element location hints
+- The task requires domain-specific knowledge (e.g. special app behaviors)
 
-启动时会自动检查所有配置模型候选的可用性，每个场景至少要有一个候选模型可用：
+All configured model candidates are checked at startup; at least one must be available per scenario:
 
 ```
-🔍 检查模型可用性（共 4 个候选）...
+🔍 Checking model availability (4 candidates)...
   ✅ 'glm-4.6v' [default #1]
   ❌ 'doubao-seed-2.0-pro' [vision #1]
   ✅ 'glm-5v-turbo' [vision #2]
   ✅ 'gpt-4o-mini' [text #1]
 ```
 
-## 任务报告
+## Task Reports
 
-每次任务执行完成后，会在 `uiautoagent_reports/task_xxx/` 目录下生成：
+After each task execution, the following are generated under `uiautoagent_reports/task_xxx/`:
 
-| 文件 | 说明 |
-|------|------|
-| `report.html` | 可视化 HTML 报告，包含标注截图、AI 原始响应、token 消耗、耗时 |
-| `history.json` | 完整步骤记录（含 token 统计） |
-| `log.txt` | 实时追加的步骤日志（每步执行后立即写入，可读文本格式） |
-| `summary.txt` | 文本摘要 |
-| `screenshots/` | 原始截图 |
-| `annotated/` | 标注了操作位置和 bbox 的截图 |
+| File | Description |
+|------|-------------|
+| `report.html` | Visual HTML report with annotated screenshots, raw AI responses, token usage, and timing |
+| `history.json` | Full step-by-step record (with token stats) |
+| `log.txt` | Real-time step log (appended after each step, human-readable text) |
+| `summary.txt` | Text summary |
+| `screenshots/` | Original screenshots |
+| `annotated/` | Screenshots annotated with tap locations and bounding boxes |
 
-### 界面相似度反馈
+### Screenshot Similarity Feedback
 
-系统会自动对比操作前后的截图，计算界面相似度（0-1，1 表示完全相同），并将此信息反馈给 AI：
+The system compares screenshots before and after actions, computing a similarity score (0–1, 1 = identical), and feeds this back to the AI:
 
-- **相似度 > 95%**：界面几乎无变化，AI 会判断操作可能未生效
-- **相似度 85%-95%**：界面轻微变化
-- **相似度 70%-85%**：界面明显变化，操作可能已生效
-- **相似度 < 70%**：界面大幅变化
+- **Similarity > 95%**: Almost no change; AI may conclude the action had no effect
+- **Similarity 85%–95%**: Minor change
+- **Similarity 70%–85%**: Notable change; action likely took effect
+- **Similarity < 70%**: Major change
 
-这有助于 AI 判断点击/滑动等操作是否真正生效，从而决定下一步策略。
+This helps the AI judge whether taps, swipes, etc. actually worked, informing its next move.
 
 ## Python API
 
-### AI 自主执行任务
+### AI Autonomous Task Execution
 
 ```python
 from uiautoagent import run_ai_task
 
-# 最简单的用法 - AI 自主完成任务
-result = run_ai_task("修改昵称为 kitty")
+# Simplest usage — AI completes the task autonomously
+result = run_ai_task("Change nickname to kitty")
 if result.success:
-    print(f"任务完成: {result.result}")
+    print(f"Task completed: {result.result}")
 else:
-    print(f"任务失败: {result.result}")
+    print(f"Task failed: {result.result}")
 
-# 提供任务上下文提高成功率
+# Provide task context for higher success rate
 result = run_ai_task(
-    "修改昵称为 kitty",
-    context="微信修改昵称路径：点击底部'我' → 点击头像 → 点击'昵称' → 修改后点'保存'",
+    "Change nickname to kitty",
+    context="WeChat path: tap 'Me' at bottom → tap avatar → tap 'Nickname' → edit → tap 'Save'",
 )
 
-# 如果任务需要返回观察结果（如"查看有多少个好友"）
-result = run_ai_task("查看有多少个好友")
+# For observation tasks (e.g. "how many friends do I have")
+result = run_ai_task("Check how many friends")
 if result.success:
-    print(f"好友数量: {result.result}")  # 例如: "有5个好友"
+    print(f"Friend count: {result.result}")  # e.g. "5 friends"
 ```
 
-### 图片内容提取
+### Image Content Extraction
 
 ```python
 from uiautoagent import extract_content, ExtractionResult
 
-# 自由提取 - AI 决定 JSON 结构
-result = extract_content("screenshot.png", "提取所有价格信息")
+# Free-form extraction — AI decides the JSON structure
+result = extract_content("screenshot.png", "Extract all pricing info")
 if result.success:
-    print(result.content)  # dict 或 list
+    print(result.content)  # dict or list
 
-# 指定输出格式 - AI 按给定 JSON 格式输出
+# Typed extraction — AI outputs in the given JSON format
 result = extract_content(
     "screenshot.png",
-    query="提取商品信息",
-    example={"name": "商品", "price": 0},
+    query="Extract product info",
+    example={"name": "Product", "price": 0},
 )
 ```
 
-### 元素检测
+### Element Detection
 
 ```python
 from uiautoagent import detect_element, draw_bbox
 
-# 检测元素
-result = detect_element("screenshot.png", "登录按钮")
+# Detect an element
+result = detect_element("screenshot.png", "Login button")
 if result.found:
-    print(f"位置: {result.bbox}")
+    print(f"Position: {result.bbox}")
     draw_bbox("screenshot.png", result, "result.png")
 ```
 
-### 设备控制
+### Device Control
 
 ```python
 from uiautoagent import AndroidController, IOSController, SwipeDirection
 
-# 控制Android设备
+# Android device control
 controller = AndroidController()
 controller.tap(500, 1000)
 controller.long_press(500, 1000, duration_ms=1200)
 controller.swipe_direction(SwipeDirection.UP)
 controller.input_text("hello")
 controller.back()
-controller.app_launch("com.tencent.mm")  # 启动微信
-controller.app_stop("com.tencent.mm")    # 停止微信
-controller.app_reboot("com.tencent.mm")  # 重启微信
+controller.app_launch("com.tencent.mm")  # Launch WeChat
+controller.app_stop("com.tencent.mm")    # Stop WeChat
+controller.app_reboot("com.tencent.mm")  # Restart WeChat
 
-# 控制iOS设备
-controller = IOSController()  # 自动检测USB设备
+# iOS device control
+controller = IOSController()  # Auto-detects USB device
 controller.tap(500, 1000)
 controller.long_press(500, 1000, duration_ms=1200)
 controller.swipe_direction(SwipeDirection.UP)
 controller.input_text("hello")
 controller.home()
-controller.app_launch("com.tencent.xin")  # 启动微信
-controller.app_stop("com.tencent.xin")    # 停止微信
-controller.app_reboot("com.tencent.xin")  # 重启微信
+controller.app_launch("com.tencent.xin")  # Launch WeChat
+controller.app_stop("com.tencent.xin")    # Stop WeChat
+controller.app_reboot("com.tencent.xin")  # Restart WeChat
 ```
 
-### 直接调用 AI
+### Direct AI Calls
 
 ```python
 from uiautoagent import Category, chat_completion
 
 response = chat_completion(
     category=Category.TEXT,
-    messages=[{"role": "user", "content": "总结这段文本"}],
+    messages=[{"role": "user", "content": "Summarize this text"}],
     max_tokens=500,
 )
 content = response.choices[0].message.content
 
-# 未显式传 model 时，会按该场景配置的候选模型顺序自动回退
+# When model is not explicitly passed, candidates for the category are tried in order
 
-# 视觉场景（需要图片）
+# Vision scenario (requires image)
 vision_response = chat_completion(
     category=Category.VISION,
-    messages=[{"role": "user", "content": "分析这张图片"}],
+    messages=[{"role": "user", "content": "Analyze this image"}],
 )
 ```
 
-### Token 统计
+### Token Statistics
 
 ```python
 from uiautoagent import TokenTracker
@@ -258,29 +260,29 @@ for category, stat in stats.items():
     print(f"{category}: {stat.total} tokens")
 
 total = TokenTracker.get_total()
-print(f"总计: {total.total} tokens")
+print(f"Total: {total.total} tokens")
 ```
 
-AI 视觉定位可以精准识别屏幕上的 UI 元素：
+AI-powered visual detection precisely identifies UI elements on screen:
 
-**原始截图**
+**Original screenshot**
 ![sample.png](assets/sample.png)
 
-**检测结果** - 查询"关闭按钮"
+**Detection result** — query "close button"
 ![result.png](assets/result.png)
 
-## 要求
+## Requirements
 
 - Python 3.10+
-- OpenAI 兼容的 API
-  - 视觉场景（`VISION`）需要支持 Vision 的模型
-  - 文本场景（`TEXT`）使用普通聊天模型即可
-- Android 需要 ADB
-- iOS 需要 WebDriverAgent 和 [wdapy](https://github.com/openatx/wdapy)，设备列表需要 `idevice_id`（libimobiledevice）或 `tidevice`
+- OpenAI-compatible API
+  - Vision scenarios (`VISION`) require a vision-capable model
+  - Text scenarios (`TEXT`) work with any chat model
+- Android requires ADB
+- iOS requires WebDriverAgent and [wdapy](https://github.com/openatx/wdapy); device listing requires `idevice_id` (libimobiledevice) or `tidevice`
 
-## 参考
+## Reference
 
-- 谷歌Paper，重复提示器提高准确度 https://arxiv.org/pdf/2512.14982
+- Google Paper: Repeated Prompters Improve Accuracy https://arxiv.org/pdf/2512.14982
 
 ## License
 

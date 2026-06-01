@@ -298,7 +298,9 @@ def check_model_available(model: str) -> bool:
         )
         return bool(resp.choices and resp.choices[0].message is not None)
     except Exception as e:
-        log.error("模型不可用", model=model, error=str(e), error_type=type(e).__name__)
+        log.error(
+            "Model unavailable", model=model, error=str(e), error_type=type(e).__name__
+        )
         return False
 
 
@@ -398,12 +400,10 @@ def chat_completion(
             last_error = e
             if index < len(model_candidates):
                 log.warning(
-                    "模型调用失败，尝试下一个候选模型",
-                    model=candidate,
-                    next_model=model_candidates[index],
+                    "Model call failed, trying next model",
+                    model=model_candidates[index],
+                    prev_model=candidate,
                     category=tracker.category,
-                    error=str(e),
-                    error_type=type(e).__name__,
                 )
 
     raise last_error  # type: ignore[misc]
