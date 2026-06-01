@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import dictlog
+from PIL import Image
 from pydantic import BaseModel
 
 from uiautoagent.ai import Category, chat_completion
@@ -59,7 +60,7 @@ content 字段必须严格遵循用户提供的示例格式，保持相同的字
 
 
 def extract_content(
-    image_source: str | Path,
+    image_source: str | Path | Image.Image,
     query: str,
     example: str | dict | list | None = None,
 ) -> ExtractionResult:
@@ -67,7 +68,7 @@ def extract_content(
     从图片中提取指定内容并返回结构化 JSON。
 
     Args:
-        image_source: 图片文件路径
+        image_source: 图片文件路径或 PIL Image 对象
         query: 查询提示词，如 "提取所有价格信息"、"识别图中的表格数据"
         example: 可选的输出格式示例，支持 JSON 字符串/对象/数组。
                  传入标准 JSON 时 AI 严格按格式输出；
@@ -78,14 +79,15 @@ def extract_content(
         ExtractionResult 包含提取结果
 
     Raises:
-        FileNotFoundError: 图片文件不存在
+        FileNotFoundError: 图片文件不存在（仅当传入文件路径时）
         ValueError: example 无法解析
     """
-    path = Path(image_source)
-    if not path.exists():
-        raise FileNotFoundError(f"图片文件不存在: {path}")
+    if isinstance(image_source, (str, Path)):
+        path = Path(image_source)
+        if not path.exists():
+            raise FileNotFoundError(f"图片文件不存在: {path}")
 
-    b64, media_type = _encode_image(path)
+    b64, media_type = _encode_image(image_source)
 
     # 构建系统提示词
     if example is not None:

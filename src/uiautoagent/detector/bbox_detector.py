@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import io
 from pathlib import Path
 from typing import Type, TypeVar
 
@@ -168,8 +169,15 @@ def safe_validate_json(
     raise ValueError(f"AI 格式化失败，无法解析为 {model_class.__name__}")
 
 
-def _encode_image(image_source: str | Path) -> tuple[str, str]:
+def _encode_image(image_source: str | Path | Image.Image) -> tuple[str, str]:
     """将图片编码为base64，返回 (base64_str, media_type)"""
+    if isinstance(image_source, Image.Image):
+        buffer = io.BytesIO()
+        img_format = image_source.format or "PNG"
+        image_source.save(buffer, format=img_format)
+        media_type = f"image/{img_format.lower()}"
+        return base64.b64encode(buffer.getvalue()).decode(), media_type
+
     path = Path(image_source)
     suffix = path.suffix.lower()
     media_types = {
@@ -183,19 +191,22 @@ def _encode_image(image_source: str | Path) -> tuple[str, str]:
 
 
 def detect_element(
-    image_source: str | Path,
+    image_source: str | Path | Image.Image,
     query: str,
 ) -> DetectionResult:
     """
     在图片中检测指定元素并返回其bbox。
 
     Args:
-        image_source: 图片路径
+        image_source: 图片路径或 PIL Image 对象
         query: 要查找的元素描述，如"登录按钮"、"搜索框"
     """
     b64, media_type = _encode_image(image_source)
-    img = Image.open(image_source)
-    w, h = img.size
+    if isinstance(image_source, Image.Image):
+        w, h = image_source.size
+    else:
+        img = Image.open(image_source)
+        w, h = img.size
 
     response = chat_completion(
         category=Category.VISION,
