@@ -233,3 +233,4 @@ tasks/
 *.swp
 *.png
 .env.*
+_version.py
