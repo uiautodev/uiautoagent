@@ -257,11 +257,11 @@ def main():
         help="直接传入任务上下文文本",
     )
     parser.add_argument(
-        "--log-level",
-        "-l",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        default="DEBUG",
-        help="日志级别（默认：DEBUG）",
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="日志详细程度：-v=DEBUG, -vv=TRACE（默认：INFO）",
     )
     parser.add_argument(
         "-i",
@@ -283,7 +283,13 @@ def main():
     args = parser.parse_args()
 
     log = slog.bind(mode=args.mode, task=args.task, platform=args.platform)
-    slog.level = getattr(dictlog, args.log_level)
+    verbose = args.verbose
+    if verbose == 0:
+        slog.level = dictlog.INFO
+    elif verbose == 1:
+        slog.level = dictlog.DEBUG
+    else:
+        slog.level = dictlog.TRACE
 
     if not check_all_models_available():
         return
