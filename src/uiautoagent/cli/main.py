@@ -268,7 +268,7 @@ def main():
         "--verbose",
         action="count",
         default=0,
-        help="日志详细程度：-v=DEBUG, -vv=TRACE（默认：INFO）",
+        help="日志详细程度：0=INFO（默认），-v=DEBUG，-vv=TRACE",
     )
     parser.add_argument(
         "-i",
