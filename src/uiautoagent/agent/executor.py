@@ -504,22 +504,29 @@ def replay_ai_task(
             "回放完成",
             replayed_steps=replay_result.replayed_steps,
         )
-        if not replay_result.ai_fallback_triggered:
-            log.info("所有步骤均由录制回放执行，未触发AI")
-    elif replay_result.ai_fallback_triggered:
-        if replay_result.success:
+        if replay_result.ai_fallback_triggered:
             log.info(
                 "AI fallback 成功",
                 replayed_steps=replay_result.replayed_steps,
                 failed_at_step=replay_result.failed_at_step,
             )
+        else:
+            log.info("所有步骤均由录制回放执行，未触发AI")
     else:
-        log.error(
-            "回放失败",
-            replayed_steps=replay_result.replayed_steps,
-            failed_at_step=replay_result.failed_at_step,
-            error=replay_result.error,
-        )
+        if replay_result.ai_fallback_triggered:
+            log.error(
+                "AI fallback 失败",
+                replayed_steps=replay_result.replayed_steps,
+                failed_at_step=replay_result.failed_at_step,
+                error=replay_result.error,
+            )
+        else:
+            log.error(
+                "回放失败",
+                replayed_steps=replay_result.replayed_steps,
+                failed_at_step=replay_result.failed_at_step,
+                error=replay_result.error,
+            )
 
     # 保存历史和报告（无论成功失败）
     agent.save_history()
