@@ -24,8 +24,17 @@ from uiautoagent.agent.ai_utils import (  # noqa: E402
     clarify_task,
     summarize_task,
 )
-from uiautoagent.agent.executor import execute_ai_task, run_ai_task  # noqa: E402
+from uiautoagent.agent.executor import execute_ai_task, replay_ai_task, run_ai_task  # noqa: E402
 from uiautoagent.agent.memory import TaskMemory, get_task_memory  # noqa: E402
+from uiautoagent.agent.replay import (  # noqa: E402
+    Recording,
+    ReplayConfig,
+    ReplayResult,
+    list_recordings,
+    load_recording,
+    replay_task,
+    save_recording,
+)
 from uiautoagent.controller import (  # noqa: E402
     AndroidController,
     DeviceController,
@@ -51,6 +60,7 @@ __all__ = [
     "TaskStep",
     "run_ai_task",
     "execute_ai_task",
+    "replay_ai_task",
     # Memory
     "TaskMemory",
     "get_task_memory",
@@ -68,6 +78,14 @@ __all__ = [
     "draw_bbox",
     "extract_content",
     "ExtractionResult",
+    # Replay
+    "Recording",
+    "ReplayConfig",
+    "ReplayResult",
+    "save_recording",
+    "load_recording",
+    "list_recordings",
+    "replay_task",
 ]
 
 __version__ = "0.1.0"

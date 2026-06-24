@@ -183,8 +183,11 @@ class DeviceAgent:
             if self.report_dir.exists():
                 self._log(f"⚠️  报告目录已存在，输出文件将被覆盖: {self.report_dir}")
         else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.report_dir = Path("uiautoagent_reports") / f"task_{timestamp}"
+            import shutil
+
+            self.report_dir = Path("uiautoagent_report")
+            if self.report_dir.exists():
+                shutil.rmtree(self.report_dir)
         self.report_dir.mkdir(parents=True, exist_ok=True)
 
         # 截图子目录
@@ -412,6 +415,73 @@ class DeviceAgent:
         else:
             raise ValueError(f"未知动作类型: {action.type}")
 
+    def _execute_action_from_detail(
+        self, action: Action, action_detail: ActionDetail
+    ) -> None:
+        """使用预解析的实际坐标执行动作（回放用），无需截图做坐标转换"""
+        if action.type == ActionType.TAP:
+            if action_detail.tap_bbox:
+                bbox = BBox(
+                    x1=action_detail.tap_bbox[0],
+                    y1=action_detail.tap_bbox[1],
+                    x2=action_detail.tap_bbox[2],
+                    y2=action_detail.tap_bbox[3],
+                )
+                self.controller.tap_bbox(bbox)
+            elif action_detail.tap_position:
+                self.controller.tap(*action_detail.tap_position)
+            else:
+                raise ValueError("TAP: ActionDetail 缺少坐标信息")
+
+        elif action.type == ActionType.LONG_PRESS:
+            assert isinstance(action.params, LongPressParams)
+            if action_detail.tap_position:
+                self.controller.long_press(
+                    *action_detail.tap_position, action.params.long_press_ms
+                )
+            else:
+                raise ValueError("LONG_PRESS: ActionDetail 缺少坐标信息")
+
+        elif action.type == ActionType.INPUT:
+            assert isinstance(action.params, InputParams)
+            self.controller.input_text(action.params.text)
+
+        elif action.type == ActionType.SWIPE:
+            if action_detail.swipe_start and action_detail.swipe_end:
+                self.controller.swipe(
+                    *action_detail.swipe_start,
+                    *action_detail.swipe_end,
+                )
+            elif action_detail.swipe_direction:
+                self.controller.swipe_direction(action_detail.swipe_direction)
+            else:
+                raise ValueError("SWIPE: ActionDetail 缺少坐标或方向信息")
+
+        elif action.type == ActionType.BACK:
+            self.controller.back()
+
+        elif action.type == ActionType.WAIT:
+            assert isinstance(action.params, WaitParams)
+            time.sleep(action.params.wait_ms / 1000)
+
+        elif action.type == ActionType.APP_LAUNCH:
+            assert isinstance(action.params, AppIdParams)
+            self.controller.app_launch(action.params.app_id)
+
+        elif action.type == ActionType.APP_STOP:
+            assert isinstance(action.params, AppIdParams)
+            self.controller.app_stop(action.params.app_id)
+
+        elif action.type == ActionType.APP_REBOOT:
+            assert isinstance(action.params, AppIdParams)
+            self.controller.app_reboot(action.params.app_id)
+
+        elif action.type in (ActionType.DONE, ActionType.FAIL):
+            pass
+
+        else:
+            raise ValueError(f"未知动作类型: {action.type}")
+
     def step(
         self,
         action: Action,
@@ -573,27 +643,9 @@ class DeviceAgent:
         self._log(f"📊 HTML报告已保存至: {report_path}")
 
     def _update_latest_symlink(self):
-        """创建/更新 latest 软链接指向当前任务目录"""
-        if self.config.report_dir:
-            return
-
-        reports_root = Path("uiautoagent_reports")
-        latest_link = reports_root / "latest"
-
-        try:
-            # 如果已存在 latest 软链接，先删除
-            if latest_link.is_symlink() or latest_link.exists():
-                latest_link.unlink()
-
-            # 创建相对路径的软链接（更便携）
-            # 获取任务目录名称（如 "task_20240121_123456"）
-            task_dir_name = self.report_dir.name
-            os.symlink(task_dir_name, latest_link)
-
-            self._log(f"🔗 软链接已更新: {latest_link} -> {task_dir_name}")
-        except OSError as e:
-            # 软链接创建失败（如权限问题、Windows 不支持等）
-            self._log(f"⚠️  无法创建软链接: {e}")
+        """创建/更新 latest 软链接"""
+        # uiautoagent_report 为扁平目录，无需软链接
+        pass
 
     def _save_text_summary(self):
         """保存可读的文本摘要"""
