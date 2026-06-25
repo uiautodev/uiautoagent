@@ -396,7 +396,7 @@ def execute_ai_task(
     log.warning(
         f"达到最大步数限制 ({max_steps})，任务可能未完成",
         max_steps=max_steps,
-        actual_steps=agent.history,
+        actual_steps=[step.action.log for step in agent.history],
     )
     agent.save_history()
     agent.print_summary()

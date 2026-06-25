@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 import dictlog
+import dotenv
 
 from uiautoagent.agent import Action, ActionType, AgentConfig, DeviceAgent
 from uiautoagent.agent.plan import InputParams, TapParams, WaitParams
@@ -338,6 +339,12 @@ def main():
         default=None,
         help='JSON 输出示例字符串，如 \'{"name":"商品","price":0}\'（extract模式可选）',
     )
+    parser.add_argument(
+        "-e",
+        "--env-file",
+        default=None,
+        help="指定 .env 配置文件路径（默认自动查找 .env）",
+    )
     args = parser.parse_args()
 
     log = slog.bind(mode=args.mode, task=args.task, platform=args.platform)
@@ -351,6 +358,19 @@ def main():
         root_log.level = dictlog.DEBUG
     else:
         root_log.level = dictlog.TRACE
+
+    if args.env_file:
+        env_path = Path(args.env_file)
+        if not env_path.is_file():
+            log.error("指定的 env 文件不存在", path=str(env_path))
+            return
+        dotenv.load_dotenv(env_path)
+        slog.debug("已加载 .env", path=str(env_path))
+    else:
+        env_path = dotenv.find_dotenv()
+        if env_path:
+            dotenv.load_dotenv(env_path)
+            slog.debug("已加载 .env", path=env_path)
 
     # replay 模式不需要预先检查模型，只有 AI fallback 触发时才需要
     if args.mode != "replay" and not check_all_models_available():

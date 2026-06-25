@@ -1,10 +1,5 @@
 """uiautoagent - AI-powered UI automation framework"""
 
-import dotenv
-
-# 加载 .env 文件环境变量
-dotenv.load_dotenv()
-
 from uiautoagent.ai import (  # noqa: E402
     Category,
     TokenStats,

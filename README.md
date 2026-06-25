@@ -63,7 +63,7 @@ SESSION_ID=my-session-123   # Auto-generated UUID if not set
 |----------|----------------|---------|-------------|
 | `UIAUTO_BASE_URL` | `BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL |
 | `UIAUTO_API_KEY` | `API_KEY` | — | API key |
-| `UIAUTO_MODEL_NAME` | `MODEL_NAME` | `doubao-seed-2.0-pro` | Default model candidates (comma-separated, tried in order) |
+| `UIAUTO_MODEL_NAME` | `MODEL_NAME` | — *(required)* | Default model candidates (comma-separated, tried in order) |
 | `UIAUTO_MODEL_VISION` | `MODEL_VISION` | same as `MODEL_NAME` | Vision model candidates (planning + detection, requires vision capability) |
 | `UIAUTO_MODEL_TEXT` | `MODEL_TEXT` | same as `MODEL_NAME` | Text model candidates (summarization, clarification, search) |
 | `UIAUTO_MODEL_PROXY` | `MODEL_PROXY` | — | HTTP proxy (e.g. `http://127.0.0.1:7890`) |
@@ -78,6 +78,9 @@ SESSION_ID=my-session-123   # Auto-generated UUID if not set
 ```bash
 # AI autonomous task execution
 uv run uiautoagent -m ai -t "Change nickname to kitty"
+
+# Use a specific env file (otherwise auto-detects .env in current/parent dirs)
+uv run uiautoagent -e .env.doubao -m ai -t "Change nickname to kitty"
 
 # Target an iOS device
 uv run uiautoagent -m ai -t "Change nickname to kitty" -p ios
