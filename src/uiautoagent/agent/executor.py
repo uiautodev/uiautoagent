@@ -396,7 +396,7 @@ def execute_ai_task(
     log.warning(
         f"达到最大步数限制 ({max_steps})，任务可能未完成",
         max_steps=max_steps,
-        actual_steps=agent.history,
+        actual_steps=[step.action.log for step in agent.history],
     )
     agent.save_history()
     agent.print_summary()
@@ -419,6 +419,125 @@ def execute_ai_task(
     return TaskResult(success=False, result=f"达到最大步数限制 ({max_steps})")
 
 
+def replay_ai_task(
+    recording_name: str,
+    serial: str | None = None,
+    max_steps: int = 30,
+    verbose: bool = True,
+    platform: str = "android",
+    no_fallback: bool = False,
+) -> TaskResult:
+    """
+    回放录制的操作步骤，失败时自动切换AI模式
+
+    Args:
+        recording_name: 录制名称
+        serial: 设备序列号/UDID
+        max_steps: AI fallback 时的最大执行步数
+        verbose: 是否打印详细日志
+        platform: 设备平台
+        no_fallback: 是否禁用AI fallback
+
+    Returns:
+        TaskResult: 任务执行结果
+    """
+    from uiautoagent.agent.replay import (
+        ReplayConfig,
+        load_recording,
+        replay_task,
+    )
+
+    recording = load_recording(recording_name)
+    if recording is None:
+        return TaskResult(
+            success=False,
+            result=f"录制 '{recording_name}' 不存在",
+        )
+
+    log.info("=" * 50)
+    log.info("📱 设备Agent - 录制回放模式")
+    log.info("=" * 50)
+    log.info(
+        "录制信息",
+        name=recording.name,
+        task=recording.task,
+        steps=len(recording.steps),
+        resolution=f"{recording.resolution_w}x{recording.resolution_h}",
+    )
+
+    # 设备设置
+    platform = platform.lower()
+    if platform == "ios":
+        controller, device_id = _setup_ios_device(serial)
+    else:
+        controller, device_id = _setup_android_device(serial)
+
+    if controller is None:
+        return TaskResult(success=False, result=f"未检测到{platform}设备")
+
+    agent = DeviceAgent(
+        controller,
+        config=AgentConfig(
+            max_steps=max_steps,
+            save_screenshots=True,
+            verbose=verbose,
+        ),
+        task=recording.task,
+    )
+
+    info = controller.get_device_info()
+    log.info(
+        "设备信息",
+        model=info["model"],
+        width=info["width"],
+        height=info["height"],
+        report_dir=agent.report_dir,
+    )
+
+    # 执行回放
+    replay_config = ReplayConfig(fallback_to_ai=not no_fallback)
+    replay_result = replay_task(agent, recording, config=replay_config)
+
+    # 输出结果
+    if replay_result.success:
+        log.info(
+            "回放完成",
+            replayed_steps=replay_result.replayed_steps,
+        )
+        if replay_result.ai_fallback_triggered:
+            log.info(
+                "AI fallback 成功",
+                replayed_steps=replay_result.replayed_steps,
+                failed_at_step=replay_result.failed_at_step,
+            )
+        else:
+            log.info("所有步骤均由录制回放执行，未触发AI")
+    else:
+        if replay_result.ai_fallback_triggered:
+            log.error(
+                "AI fallback 失败",
+                replayed_steps=replay_result.replayed_steps,
+                failed_at_step=replay_result.failed_at_step,
+                error=replay_result.error,
+            )
+        else:
+            log.error(
+                "回放失败",
+                replayed_steps=replay_result.replayed_steps,
+                failed_at_step=replay_result.failed_at_step,
+                error=replay_result.error,
+            )
+
+    # 保存历史和报告（无论成功失败）
+    agent.save_history()
+    agent.print_summary()
+
+    return TaskResult(
+        success=replay_result.success,
+        result=replay_result.final_result or replay_result.error,
+    )
+
+
 def run_ai_task(
     task: str,
     serial: str | None = None,
@@ -426,6 +545,7 @@ def run_ai_task(
     verbose: bool = True,
     platform: str = "android",
     context: str | None = None,
+    record_name: str | None = None,
 ) -> TaskResult:
     """
     运行 AI 自主任务 - 便捷函数
@@ -510,7 +630,18 @@ def run_ai_task(
 
     # 执行AI自主任务
     try:
-        return execute_ai_task(agent, proposal, user_context=context)
+        result = execute_ai_task(agent, proposal, user_context=context)
     except Exception as e:
         log.error("任务执行出错", error=str(e), error_type=type(e).__name__)
-        return TaskResult(success=False, result=str(e))
+        result = TaskResult(success=False, result=str(e))
+
+    # 保存录制
+    if record_name:
+        from uiautoagent.agent.replay import save_recording
+
+        try:
+            save_recording(agent, record_name)
+        except Exception as e:
+            log.warning("录制保存失败", error=str(e))
+
+    return result

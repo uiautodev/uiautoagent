@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import uuid
 from collections import defaultdict
 from enum import Enum
 from functools import lru_cache
@@ -22,6 +20,8 @@ from openai import (
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel, Field
 
+from uiautoagent.env import env
+
 # 可重试的瞬态错误（换一个候选模型可能成功）
 _RETRYABLE_ERRORS = (
     APIConnectionError,
@@ -32,27 +32,6 @@ _RETRYABLE_ERRORS = (
 
 # 模块级 logger
 log = dictlog.get_logger(__name__)
-
-# 当前进程的 session ID，用于 OpenRouter 等平台的请求追踪
-SESSION_ID = os.getenv("SESSION_ID") or str(uuid.uuid4())
-
-
-def _get_env(key: str, default: str | None = None) -> str | None:
-    """
-    获取环境变量，优先使用 UIAUTO_ 前缀版本
-
-    Args:
-        key: 环境变量名称（不含前缀）
-        default: 默认值
-
-    Returns:
-        环境变量值，如果不存在则返回默认值
-
-    Example:
-        >>> _get_env("BASE_URL", "https://api.openai.com/v1")
-        # 优先读取 UIAUTO_BASE_URL，如果不存在则读取 BASE_URL
-    """
-    return os.getenv(f"UIAUTO_{key}", os.getenv(key, default))
 
 
 def _parse_model_list(value: str | None) -> list[str]:
@@ -73,12 +52,22 @@ class Category(str, Enum):
     DEFAULT = "default"
 
 
-# 不同场景的模型配置
-_MODEL_CONFIG: dict[Category, list[str]] = {
-    Category.VISION: _parse_model_list(_get_env("MODEL_VISION")),
-    Category.TEXT: _parse_model_list(_get_env("MODEL_TEXT")),
-}
-_DEFAULT_MODELS = _parse_model_list(_get_env("MODEL_NAME")) or ["doubao-seed-2.0-pro"]
+# 不同场景的模型配置（延迟加载，因为 .env 可能在模块导入后才加载）
+_MODEL_CONFIG: dict[Category, list[str]] | None = None
+_DEFAULT_MODELS: list[str] | None = None
+
+
+def _ensure_models_loaded() -> None:
+    """确保模型配置已从环境变量加载（幂等）"""
+    global _MODEL_CONFIG, _DEFAULT_MODELS
+    if _MODEL_CONFIG is not None:
+        return
+
+    _MODEL_CONFIG = {
+        Category.VISION: _parse_model_list(env.model_vision),
+        Category.TEXT: _parse_model_list(env.model_text),
+    }
+    _DEFAULT_MODELS = _parse_model_list(env.model_name)
 
 
 class TokenStats(BaseModel):
@@ -203,23 +192,21 @@ def _get_ai_client() -> OpenAI:
     Returns:
         OpenAI 客户端实例
     """
-    timeout_str = _get_env("REQUEST_TIMEOUT", "60") or "60"
-    timeout = float(timeout_str)
-    proxy = _get_env("MODEL_PROXY")
+    timeout = float(env.request_timeout)
+    proxy = env.model_proxy
 
     http_client = httpx.Client(trust_env=False, timeout=timeout, proxy=proxy)
 
     # OpenRouter 可选追踪头
     default_headers: dict[str, str] = {}
-    if site_url := os.getenv("OPENROUTER_SITE_URL"):
-        default_headers["HTTP-Referer"] = site_url
-    if site_name := os.getenv("OPENROUTER_SITE_NAME"):
-        default_headers["X-OpenRouter-Title"] = site_name
+    if env.openrouter_site_url:
+        default_headers["HTTP-Referer"] = env.openrouter_site_url
+    if env.openrouter_site_name:
+        default_headers["X-OpenRouter-Title"] = env.openrouter_site_name
 
     return OpenAI(
-        base_url=_get_env("BASE_URL", "https://api.openai.com/v1")
-        or "https://api.openai.com/v1",
-        api_key=_get_env("API_KEY"),
+        base_url=env.base_url,
+        api_key=env.api_key,
         http_client=http_client,
         timeout=timeout,
         default_headers=default_headers or None,
@@ -256,12 +243,13 @@ def get_ai_model(category: Category | str | None = None) -> list[str]:
         >>> get_ai_model("vision")  # 也支持字符串
         ['gpt-4o-mini', 'gpt-4o']
     """
+    _ensure_models_loaded()
     if category:
         cat = category if isinstance(category, Category) else Category(category)
-        models = _MODEL_CONFIG.get(cat)
+        models = _MODEL_CONFIG.get(cat)  # type: ignore[union-attr]
         if models:
             return models.copy()
-    return _DEFAULT_MODELS.copy()
+    return _DEFAULT_MODELS.copy()  # type: ignore[union-attr]
 
 
 def get_ai_config() -> dict:
@@ -271,11 +259,11 @@ def get_ai_config() -> dict:
     Returns:
         包含 base_url, model, timeout 等配置的字典
     """
+    _ensure_models_loaded()
     return {
-        "base_url": _get_env("BASE_URL", "https://api.openai.com/v1")
-        or "https://api.openai.com/v1",
-        "models": _DEFAULT_MODELS.copy(),
-        "timeout": int(_get_env("REQUEST_TIMEOUT", "60") or "60"),
+        "base_url": env.base_url,
+        "models": _DEFAULT_MODELS.copy(),  # type: ignore[union-attr]
+        "timeout": env.request_timeout,
     }
 
 
@@ -311,10 +299,19 @@ def check_all_models_available() -> bool:
     Returns:
         True 表示所有场景都有可用模型，False 表示存在不可用场景
     """
-    model_groups: dict[str, list[str]] = {"default": _DEFAULT_MODELS.copy()}
-    for cat, models in _MODEL_CONFIG.items():
+    _ensure_models_loaded()
+    model_groups: dict[str, list[str]] = {"default": _DEFAULT_MODELS.copy()}  # type: ignore[union-attr]
+    for cat, models in _MODEL_CONFIG.items():  # type: ignore[union-attr]
         if models:
             model_groups[cat.value] = models.copy()
+
+    total_models = sum(len(models) for models in model_groups.values())
+    if total_models == 0:
+        log.error(
+            "未配置任何模型，请设置 UIAUTO_MODEL_NAME 环境变量",
+            hint="在 .env 文件中添加 UIAUTO_MODEL_NAME=your-model-name 或通过 --env-file 指定配置文件",
+        )
+        return False
 
     checked: dict[str, bool] = {}
     total_candidates = sum(len(models) for models in model_groups.values())
@@ -386,7 +383,7 @@ def chat_completion(
         raise ValueError("未配置可用的模型")
 
     extra_body = kwargs.pop("extra_body", {}) or {}
-    extra_body.setdefault("session_id", SESSION_ID)
+    extra_body.setdefault("session_id", env.session_id)
 
     last_error: Exception | None = None
     for index, candidate in enumerate(model_candidates, start=1):

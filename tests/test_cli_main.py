@@ -29,6 +29,7 @@ def test_demo_ai_assisted_task_passes_max_steps(monkeypatch):
         "max_steps": 12,
         "platform": "ios",
         "context": "上下文",
+        "record_name": None,
     }
 
 
@@ -41,6 +42,7 @@ def test_main_ai_mode_passes_max_steps(monkeypatch):
         serial: str | None = None,
         max_steps: int = 30,
         context: str | None = None,
+        record_name: str | None = None,
     ):
         called.update(
             {
@@ -49,6 +51,7 @@ def test_main_ai_mode_passes_max_steps(monkeypatch):
                 "serial": serial,
                 "max_steps": max_steps,
                 "context": context,
+                "record_name": record_name,
             }
         )
 
@@ -80,4 +83,5 @@ def test_main_ai_mode_passes_max_steps(monkeypatch):
         "serial": "device-1",
         "max_steps": 15,
         "context": None,
+        "record_name": None,
     }

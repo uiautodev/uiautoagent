@@ -8,7 +8,11 @@ from typing import List
 
 import wdapy
 
-from uiautoagent.controller.base import DeviceController, SwipeDirection
+from uiautoagent.controller.base import (
+    DeviceController,
+    direction_to_swipe_coords,
+    SwipeDirection,
+)
 
 
 class IOSController(DeviceController):
@@ -104,41 +108,12 @@ class IOSController(DeviceController):
         """
         scale = self._get_scale()
         self.client.swipe(
-            int(x1 / scale), int(y1 / scale),
-            int(x2 / scale), int(y2 / scale),
+            int(x1 / scale),
+            int(y1 / scale),
+            int(x2 / scale),
+            int(y2 / scale),
             duration=duration_ms / 1000,
         )
-
-    def swipe_direction(
-        self,
-        direction: SwipeDirection,
-        ratio: float = 0.25,
-        duration_ms: int = 300,
-    ) -> None:
-        """
-        向指定方向滑动
-
-        Args:
-            direction: 滑动方向
-            ratio: 滑动距离占屏幕的比例（0-1）
-            duration_ms: 滑动持续时间
-        """
-        w, h = self._get_window_size()
-        cx, cy = w // 2, h // 2
-
-        dist_x = int(w * ratio)
-        dist_y = int(h * ratio)
-
-        moves = {
-            "up": (cx, cy + dist_y // 2, cx, cy - dist_y // 2),
-            "down": (cx, cy - dist_y // 2, cx, cy + dist_y // 2),
-            "left": (cx + dist_x // 2, cy, cx - dist_x // 2, cy),
-            "right": (cx - dist_x // 2, cy, cx + dist_x // 2, cy),
-        }
-
-        x1, y1, x2, y2 = moves[direction]
-        # window_size 返回 UIKit 点，直接调用 client 而非 self.swipe 避免重复转换
-        self.client.swipe(x1, y1, x2, y2, duration=duration_ms / 1000)
 
     def input_text(self, text: str) -> None:
         """

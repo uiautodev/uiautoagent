@@ -9,7 +9,15 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from uiautoagent.agent.device_agent import ActionDetail, TaskStep
+from uiautoagent.agent.device_agent import TaskStep
+from uiautoagent.agent.plan import (
+    Action,
+    ActionType,
+    LongPressParams,
+    SwipeParams,
+    TapParams,
+)
+from uiautoagent.controller.base import direction_to_swipe_coords
 
 
 def _draw_crosshair(
@@ -55,43 +63,59 @@ def _draw_arrow(
 
 def annotate_screenshot(
     screenshot_path: Path,
-    detail: ActionDetail,
+    action: Action,
     output_path: Path,
 ) -> Path:
     """在截图上标注操作位置并保存"""
     img = Image.open(screenshot_path).convert("RGB")
     draw = ImageDraw.Draw(img)
+    w, h = img.width, img.height
 
-    if detail.tap_bbox:
-        x1, y1, x2, y2 = detail.tap_bbox
+    if (
+        action.type == ActionType.TAP
+        and isinstance(action.params, TapParams)
+        and action.params.bbox
+    ):
+        bbox = action.params.bbox
+        x1, y1 = int(bbox[0] * w / 1000), int(bbox[1] * h / 1000)
+        x2, y2 = int(bbox[2] * w / 1000), int(bbox[3] * h / 1000)
         draw.rectangle([x1, y1, x2, y2], outline="orange", width=3)
+        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+        _draw_crosshair(draw, cx, cy, size=max(w, h) // 30, color="red", width=4)
+        draw.text((cx + 15, cy - 25), f"TAP ({cx}, {cy})", fill="red")
 
-    if detail.tap_position:
-        x, y = detail.tap_position
-        _draw_crosshair(
-            draw, x, y, size=max(img.width, img.height) // 30, color="red", width=4
-        )
-        draw.text((x + 15, y - 25), f"TAP ({x}, {y})", fill="red")
+    if (
+        action.type == ActionType.LONG_PRESS
+        and isinstance(action.params, LongPressParams)
+        and action.params.bbox
+    ):
+        bbox = action.params.bbox
+        x1, y1 = int(bbox[0] * w / 1000), int(bbox[1] * h / 1000)
+        x2, y2 = int(bbox[2] * w / 1000), int(bbox[3] * h / 1000)
+        draw.rectangle([x1, y1, x2, y2], outline="orange", width=3)
+        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+        _draw_crosshair(draw, cx, cy, size=max(w, h) // 30, color="red", width=4)
+        draw.text((cx + 15, cy - 25), f"LONG_PRESS ({cx}, {cy})", fill="red")
 
-    if detail.swipe_start and detail.swipe_end:
-        x1, y1 = detail.swipe_start
-        x2, y2 = detail.swipe_end
-        _draw_arrow(draw, x1, y1, x2, y2, color="red", width=4)
-        draw.text((x1 + 10, y1 - 25), f"({x1}, {y1})", fill="red")
-        draw.text((x2 + 10, y2 + 5), f"({x2}, {y2})", fill="red")
-
-    if detail.swipe_direction:
-        cx, cy = img.width // 2, img.height // 2
-        dirs = {
-            "up": (cx, cy + 40, cx, cy - 40),
-            "down": (cx, cy - 40, cx, cy + 40),
-            "left": (cx + 40, cy, cx - 40, cy),
-            "right": (cx - 40, cy, cx + 40, cy),
-        }
-        if detail.swipe_direction in dirs:
-            sx1, sy1, sx2, sy2 = dirs[detail.swipe_direction]
+    if action.type == ActionType.SWIPE and isinstance(action.params, SwipeParams):
+        if action.params.swipe_start_xy and action.params.swipe_end_xy:
+            x1 = int(action.params.swipe_start_xy[0] * w / 1000)
+            y1 = int(action.params.swipe_start_xy[1] * h / 1000)
+            x2 = int(action.params.swipe_end_xy[0] * w / 1000)
+            y2 = int(action.params.swipe_end_xy[1] * h / 1000)
+            _draw_arrow(draw, x1, y1, x2, y2, color="red", width=4)
+            draw.text((x1 + 10, y1 - 25), f"({x1}, {y1})", fill="red")
+            draw.text((x2 + 10, y2 + 5), f"({x2}, {y2})", fill="red")
+        if action.params.direction:
+            sx1, sy1, sx2, sy2 = direction_to_swipe_coords(
+                w, h, action.params.direction
+            )
             _draw_arrow(draw, sx1, sy1, sx2, sy2, color="red", width=4)
-            draw.text((cx - 40, cy - 40), f"SWIPE {detail.swipe_direction}", fill="red")
+            draw.text(
+                (w // 2 - 40, h // 2 - 40),
+                f"SWIPE {action.params.direction}",
+                fill="red",
+            )
 
     img.save(output_path)
     return output_path
@@ -174,15 +198,14 @@ def generate_html_report(
         screenshot_path = Path(step.screenshot_path)
         if not screenshot_path.exists():
             continue
-        detail = step.action_detail
-        if detail and (
-            detail.tap_position
-            or detail.swipe_start
-            or detail.swipe_direction
-            or detail.is_back
+        action = step.action
+        if action and action.type in (
+            ActionType.TAP,
+            ActionType.LONG_PRESS,
+            ActionType.SWIPE,
         ):
             out_path = annotated_dir / f"step_{step.step_number:03d}.png"
-            annotate_screenshot(screenshot_path, detail, out_path)
+            annotate_screenshot(screenshot_path, action, out_path)
             annotated_images[step.step_number] = _image_to_base64(out_path)
         else:
             annotated_images[step.step_number] = _image_to_base64(screenshot_path)
@@ -214,19 +237,24 @@ def generate_html_report(
                 f'<p class="detail">📷 相似度: {sim:.2%} ({sim_label})</p>'
             )
         detail_html = ""
-        if step.action_detail:
-            d = step.action_detail
+        if step.action:
+            a = step.action
             parts = []
-            if d.tap_position:
-                parts.append(f"点击坐标: ({d.tap_position[0]}, {d.tap_position[1]})")
-            if d.swipe_start and d.swipe_end:
-                parts.append(
-                    f"滑动: ({d.swipe_start[0]}, {d.swipe_start[1]}) → ({d.swipe_end[0]}, {d.swipe_end[1]})"
-                )
-            if d.swipe_direction:
-                parts.append(f"方向滑动: {d.swipe_direction}")
-            if d.is_back:
-                parts.append("返回手势")
+            if a.type == ActionType.TAP and isinstance(a.params, TapParams):
+                parts.append(f"点击: {a.params.target}")
+            if a.type == ActionType.LONG_PRESS and isinstance(
+                a.params, LongPressParams
+            ):
+                parts.append(f"长按: {a.params.target}")
+            if a.type == ActionType.SWIPE and isinstance(a.params, SwipeParams):
+                if a.params.swipe_start_xy and a.params.swipe_end_xy:
+                    parts.append(
+                        f"滑动: {a.params.swipe_start_xy} → {a.params.swipe_end_xy}"
+                    )
+                if a.params.direction:
+                    parts.append(f"方向滑动: {a.params.direction}")
+            if a.type == ActionType.BACK:
+                parts.append("返回")
             if parts:
                 detail_html = '<p class="detail">' + " | ".join(parts) + "</p>"
 

@@ -15,10 +15,11 @@ from openai import InternalServerError, APIStatusError
 from PIL import Image, ImageDraw, ImageFont
 
 from uiautoagent.detector.content_extractor import ExtractionResult, extract_content
+from uiautoagent.env import env
 
 _has_api_key = any(
     os.getenv(k) for k in ("UIAUTO_API_KEY", "VISION_API_KEY", "OPENAI_API_KEY")
-)
+) or bool(env.api_key)
 
 pytestmark = pytest.mark.skipif(
     not _has_api_key,

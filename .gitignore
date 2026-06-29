@@ -234,3 +234,6 @@ tasks/
 *.png
 .env.*
 _version.py
+selfIdentity.plist
+recordings/
+uiautoagent_report/

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 import dictlog
+import dotenv
 
 from uiautoagent.agent import Action, ActionType, AgentConfig, DeviceAgent
 from uiautoagent.agent.plan import InputParams, TapParams, WaitParams
@@ -104,6 +105,7 @@ def demo_ai_assisted_task(
     serial: str | None = None,
     max_steps: int = 30,
     context: str | None = None,
+    record_name: str | None = None,
 ):
     """
     演示AI辅助任务执行 - AI自主决策并完成任务
@@ -114,9 +116,43 @@ def demo_ai_assisted_task(
         serial: 设备序列号/UDID
         max_steps: 最大执行步数
         context: 用户提供的任务上下文
+        record_name: 录制名称，保存操作路径
     """
     run_ai_task(
-        task, serial=serial, max_steps=max_steps, platform=platform, context=context
+        task,
+        serial=serial,
+        max_steps=max_steps,
+        platform=platform,
+        context=context,
+        record_name=record_name,
+    )
+
+
+def demo_replay_task(
+    recording_name: str,
+    platform: str = "android",
+    serial: str | None = None,
+    max_steps: int = 30,
+    no_fallback: bool = False,
+):
+    """
+    回放录制的操作步骤
+
+    Args:
+        recording_name: 录制名称
+        platform: 设备平台
+        serial: 设备序列号/UDID
+        max_steps: AI fallback 时最大步数
+        no_fallback: 是否禁用AI fallback
+    """
+    from uiautoagent.agent.executor import replay_ai_task
+
+    replay_ai_task(
+        recording_name,
+        serial=serial,
+        max_steps=max_steps,
+        platform=platform,
+        no_fallback=no_fallback,
     )
 
 
@@ -216,7 +252,7 @@ def main():
     parser.add_argument(
         "-m",
         "--mode",
-        choices=["manual", "ai", "find", "extract"],
+        choices=["manual", "ai", "find", "extract", "replay"],
         default="ai",
         help="运行模式",
     )
@@ -258,6 +294,22 @@ def main():
         help="直接传入任务上下文文本",
     )
     parser.add_argument(
+        "--record-name",
+        default=None,
+        help="录制名称，AI 模式下将执行的操作路径保存为录制",
+    )
+    parser.add_argument(
+        "--replay-name",
+        default=None,
+        help="回放录制名称，replay 模式下指定要回放的录制",
+    )
+    parser.add_argument(
+        "--no-ai-fallback",
+        action="store_true",
+        default=False,
+        help="回放失败时禁用 AI fallback",
+    )
+    parser.add_argument(
         "--timeout",
         type=int,
         default=None,
@@ -287,6 +339,12 @@ def main():
         default=None,
         help='JSON 输出示例字符串，如 \'{"name":"商品","price":0}\'（extract模式可选）',
     )
+    parser.add_argument(
+        "-e",
+        "--env-file",
+        default=None,
+        help="指定 .env 配置文件路径（默认自动查找 .env）",
+    )
     args = parser.parse_args()
 
     log = slog.bind(mode=args.mode, task=args.task, platform=args.platform)
@@ -301,7 +359,21 @@ def main():
     else:
         root_log.level = dictlog.TRACE
 
-    if not check_all_models_available():
+    if args.env_file:
+        env_path = Path(args.env_file)
+        if not env_path.is_file():
+            log.error("指定的 env 文件不存在", path=str(env_path))
+            return
+        dotenv.load_dotenv(env_path)
+        slog.debug("已加载 .env", path=str(env_path))
+    else:
+        env_path = dotenv.find_dotenv()
+        if env_path:
+            dotenv.load_dotenv(env_path)
+            slog.debug("已加载 .env", path=env_path)
+
+    # replay 模式不需要预先检查模型，只有 AI fallback 触发时才需要
+    if args.mode != "replay" and not check_all_models_available():
         return
 
     # 读取任务上下文
@@ -327,6 +399,18 @@ def main():
             serial=args.serial,
             max_steps=args.max_steps,
             context=context,
+            record_name=args.record_name,
+        )
+    elif args.mode == "replay":
+        if not args.replay_name:
+            log.error("replay 模式需要指定录制名称", hint="使用 --replay-name 参数")
+            return
+        demo_replay_task(
+            args.replay_name,
+            platform=args.platform,
+            serial=args.serial,
+            max_steps=args.max_steps,
+            no_fallback=args.no_ai_fallback,
         )
     elif args.mode == "extract":
         _run_extract(args)
