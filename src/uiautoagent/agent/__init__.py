@@ -7,10 +7,8 @@ from uiautoagent.agent.plan import (
     TaskProposal,
 )
 from uiautoagent.agent.device_agent import (
-    ActionDetail,
     AgentConfig,
     DeviceAgent,
-    RecordingController,
     TaskStep,
 )
 from uiautoagent.agent.executor import (
@@ -35,10 +33,8 @@ __all__ = [
     # Core agent
     "DeviceAgent",
     "Action",
-    "ActionDetail",
     "ActionType",
     "AgentConfig",
-    "RecordingController",
     "TaskStep",
     "TaskProposal",
     # Memory

@@ -8,7 +8,7 @@ from typing import List
 from adbutils import AdbClient, AdbDevice
 from PIL import Image
 
-from uiautoagent.controller.base import DeviceController, SwipeDirection
+from uiautoagent.controller.base import DeviceController
 
 
 class AndroidController(DeviceController):
@@ -49,29 +49,6 @@ class AndroidController(DeviceController):
         duration_ms: int = 500,
     ) -> None:
         self._device.shell(f"input swipe {x1} {y1} {x2} {y2} {duration_ms}")
-
-    def swipe_direction(
-        self,
-        direction: SwipeDirection,
-        ratio: float = 0.25,
-        duration_ms: int = 500,
-    ) -> None:
-        info = self.get_device_info()
-        w, h = info["width"], info["height"]
-        cx, cy = w // 2, h // 2
-
-        dist_x = int(w * ratio)
-        dist_y = int(h * ratio)
-
-        moves = {
-            "up": (cx, cy + dist_y // 2, cx, cy - dist_y // 2),
-            "down": (cx, cy - dist_y // 2, cx, cy + dist_y // 2),
-            "left": (cx + dist_x // 2, cy, cx - dist_x // 2, cy),
-            "right": (cx - dist_x // 2, cy, cx + dist_x // 2, cy),
-        }
-
-        x1, y1, x2, y2 = moves[direction]
-        self.swipe(x1, y1, x2, y2, duration_ms)
 
     def input_text(self, text: str) -> None:
         self._device.send_keys(text)

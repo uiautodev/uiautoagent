@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +12,7 @@ import dictlog
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from uiautoagent.controller.base import DeviceController, SwipeDirection
+from uiautoagent.controller.base import DeviceController
 from uiautoagent.types import TokenUsage
 from uiautoagent.detector import BBox
 from uiautoagent.agent.plan import HistoryEntry
@@ -28,95 +27,10 @@ from uiautoagent.agent.plan import (
     TaskProposal,
     WaitParams,
 )
+from uiautoagent.env import env
 
 # 模块级 logger
 log = dictlog.get_logger(__name__)
-
-
-class ActionDetail(BaseModel):
-    """操作详情（坐标等可视化信息）"""
-
-    model_config = ConfigDict(use_enum_values=True)
-
-    tap_position: tuple[int, int] | None = None
-    tap_bbox: tuple[int, int, int, int] | None = None  # (x1, y1, x2, y2)
-    swipe_start: tuple[int, int] | None = None
-    swipe_end: tuple[int, int] | None = None
-    swipe_direction: SwipeDirection | None = None
-    is_back: bool = False
-
-
-class RecordingController(DeviceController):
-    """代理模式的Controller包装，记录操作坐标用于可视化报告"""
-
-    def __init__(self, inner: DeviceController):
-        self._inner = inner
-        self.last_detail: ActionDetail = ActionDetail()
-
-    def __getattr__(self, name: str):
-        return getattr(self._inner, name)
-
-    def get_device_info(self) -> dict:
-        return self._inner.get_device_info()
-
-    def tap(self, x: int, y: int) -> None:
-        self.last_detail = ActionDetail(tap_position=(x, y))
-        self._inner.tap(x, y)
-
-    def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300) -> None:
-        self.last_detail = ActionDetail(swipe_start=(x1, y1), swipe_end=(x2, y2))
-        self._inner.swipe(x1, y1, x2, y2, duration_ms)
-
-    def swipe_direction(
-        self, direction: SwipeDirection, ratio: float = 0.5, duration_ms: int = 300
-    ) -> None:
-        self.last_detail = ActionDetail(swipe_direction=direction)
-        self._inner.swipe_direction(direction, ratio, duration_ms)
-
-    def back(self) -> None:
-        self.last_detail = ActionDetail(is_back=True)
-        self._inner.back()
-
-    def home(self) -> None:
-        self._inner.home()
-
-    def input_text(self, text: str) -> None:
-        self.last_detail = ActionDetail()
-        self._inner.input_text(text)
-
-    def clear_text(self, length: int = 100) -> None:
-        self._inner.clear_text(length)
-
-    def press_key(self, keycode: int) -> None:
-        self._inner.press_key(keycode)
-
-    def app_launch(self, app_id: str) -> None:
-        self._inner.app_launch(app_id)
-
-    def app_stop(self, app_id: str) -> None:
-        self._inner.app_stop(app_id)
-
-    def app_reboot(self, app_id: str) -> None:
-        self._inner.app_reboot(app_id)
-
-    def long_press(self, x: int, y: int, duration_ms: int = 800) -> None:
-        self.last_detail = ActionDetail(tap_position=(x, y))
-        self._inner.long_press(x, y, duration_ms)
-
-    def screenshot(self, output_path: str | Path) -> Path:
-        return self._inner.screenshot(output_path)
-
-    def tap_bbox(self, bbox) -> None:
-        x, y = bbox.center
-        self.last_detail = ActionDetail(
-            tap_position=(x, y),
-            tap_bbox=(bbox.x1, bbox.y1, bbox.x2, bbox.y2),
-        )
-        self._inner.tap(x, y)
-
-    @staticmethod
-    def list_devices() -> list[str]:
-        return DeviceController.list_devices()
 
 
 class TaskStep(BaseModel):
@@ -127,7 +41,6 @@ class TaskStep(BaseModel):
     step_number: int
     screenshot_path: str
     action: Action
-    action_detail: ActionDetail | None = None  # 操作详情（坐标等）
     success: bool
     timestamp: float
     elapsed: float | None = None  # 执行耗时（秒）
@@ -143,11 +56,10 @@ class AgentConfig(BaseModel):
     """Agent配置"""
 
     max_steps: int = 20  # 最大执行步数
-    report_dir: str | None = Field(
-        default_factory=lambda: os.getenv("UIAUTO_REPORT_DIR")
-    )  # 报告输出目录，可通过 UIAUTO_REPORT_DIR 环境变量覆盖
+    report_dir: str | None = Field(default_factory=lambda: env.report_dir)
     save_screenshots: bool = True
     verbose: bool = True
+    step_wait_ms: int = Field(default_factory=lambda: env.step_wait_ms)
 
 
 class DeviceAgent:
@@ -167,7 +79,7 @@ class DeviceAgent:
             config: Agent配置
             task: 任务描述
         """
-        self.controller = RecordingController(controller)
+        self.controller = controller
         self.config = config or AgentConfig()
         self.history: list[TaskStep] = []
         self.step_count = 0
@@ -291,37 +203,16 @@ class DeviceAgent:
         image_similarity: float | None = None,
     ) -> TaskStep:
         """创建任务步骤记录"""
-        # 获取操作详情
-        detail = None
-        if isinstance(self.controller, RecordingController):
-            detail = self.controller.last_detail
-
         return TaskStep(
             step_number=self.step_count,
             screenshot_path=str(screenshot_path),
             action=action,
-            action_detail=detail,
             success=success,
             timestamp=time.time(),
             elapsed=round(elapsed, 3),
             screenshot_after_path=screenshot_after_path,
             image_similarity=image_similarity,
         )
-
-    def _log_step(self, step: TaskStep):
-        """打印步骤日志"""
-        status = "✅" if step.success else "❌"
-        self._log(
-            f"{step.action} {status}",
-            thought=step.action.thought,
-            elapsed=step.elapsed,
-            step_number=step.step_number,
-        )
-        # if step.action.thought:
-        #     self._log(f"思考: {step.action.thought}")
-        # self._log(f"动作: {step.action} {status}")
-        # if step.elapsed:
-        #     self._log(f"耗时: {step.elapsed:.2f}s")
 
     def _normalized_bbox_to_actual(
         self, bbox: list[int], screenshot_path: Path
@@ -415,73 +306,6 @@ class DeviceAgent:
         else:
             raise ValueError(f"未知动作类型: {action.type}")
 
-    def _execute_action_from_detail(
-        self, action: Action, action_detail: ActionDetail
-    ) -> None:
-        """使用预解析的实际坐标执行动作（回放用），无需截图做坐标转换"""
-        if action.type == ActionType.TAP:
-            if action_detail.tap_bbox:
-                bbox = BBox(
-                    x1=action_detail.tap_bbox[0],
-                    y1=action_detail.tap_bbox[1],
-                    x2=action_detail.tap_bbox[2],
-                    y2=action_detail.tap_bbox[3],
-                )
-                self.controller.tap_bbox(bbox)
-            elif action_detail.tap_position:
-                self.controller.tap(*action_detail.tap_position)
-            else:
-                raise ValueError("TAP: ActionDetail 缺少坐标信息")
-
-        elif action.type == ActionType.LONG_PRESS:
-            assert isinstance(action.params, LongPressParams)
-            if action_detail.tap_position:
-                self.controller.long_press(
-                    *action_detail.tap_position, action.params.long_press_ms
-                )
-            else:
-                raise ValueError("LONG_PRESS: ActionDetail 缺少坐标信息")
-
-        elif action.type == ActionType.INPUT:
-            assert isinstance(action.params, InputParams)
-            self.controller.input_text(action.params.text)
-
-        elif action.type == ActionType.SWIPE:
-            if action_detail.swipe_start and action_detail.swipe_end:
-                self.controller.swipe(
-                    *action_detail.swipe_start,
-                    *action_detail.swipe_end,
-                )
-            elif action_detail.swipe_direction:
-                self.controller.swipe_direction(action_detail.swipe_direction)
-            else:
-                raise ValueError("SWIPE: ActionDetail 缺少坐标或方向信息")
-
-        elif action.type == ActionType.BACK:
-            self.controller.back()
-
-        elif action.type == ActionType.WAIT:
-            assert isinstance(action.params, WaitParams)
-            time.sleep(action.params.wait_ms / 1000)
-
-        elif action.type == ActionType.APP_LAUNCH:
-            assert isinstance(action.params, AppIdParams)
-            self.controller.app_launch(action.params.app_id)
-
-        elif action.type == ActionType.APP_STOP:
-            assert isinstance(action.params, AppIdParams)
-            self.controller.app_stop(action.params.app_id)
-
-        elif action.type == ActionType.APP_REBOOT:
-            assert isinstance(action.params, AppIdParams)
-            self.controller.app_reboot(action.params.app_id)
-
-        elif action.type in (ActionType.DONE, ActionType.FAIL):
-            pass
-
-        else:
-            raise ValueError(f"未知动作类型: {action.type}")
-
     def step(
         self,
         action: Action,
@@ -507,15 +331,25 @@ class DeviceAgent:
         if screenshot_path is None:
             screenshot_path = self._take_screenshot()
 
-        # 重置操作详情，避免残留上一步的坐标
-        if isinstance(self.controller, RecordingController):
-            self.controller.last_detail = ActionDetail()
-
-        # 执行动作
-        self._execute_action(action, screenshot_path)
-
         # 判断是否成功（_execute_action 抛异常说明失败，DONE/FAIL 由调用方处理）
         success = action.type != ActionType.FAIL
+        if success:
+            # 执行动作
+            log.info(
+                f"步骤 {self.step_count}: {action}",
+                screenshot=screenshot_path,
+                thought=action.thought,
+            )
+            self._execute_action(action, screenshot_path)
+            # 等待界面加载
+            if self.config.step_wait_ms > 0:
+                time.sleep(self.config.step_wait_ms / 1000)
+        else:
+            log.error(
+                f"步骤 {self.step_count}: {action} 失败",
+                screenshot=screenshot_path,
+                thought=action.thought,
+            )
 
         # 操作后截图和相似度计算（仅对会产生界面变化的操作）
         screenshot_after_path: str | None = None
@@ -545,10 +379,6 @@ class DeviceAgent:
             image_similarity=image_similarity,
         )
         self.history.append(step)
-
-        # 日志输出
-        self._log_step(step)
-
         return step
 
     def get_current_screenshot(self) -> Path:

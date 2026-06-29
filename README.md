@@ -69,6 +69,7 @@ SESSION_ID=my-session-123   # Auto-generated UUID if not set
 | `UIAUTO_MODEL_PROXY` | `MODEL_PROXY` | — | HTTP proxy (e.g. `http://127.0.0.1:7890`) |
 | `UIAUTO_REQUEST_TIMEOUT` | `REQUEST_TIMEOUT` | `60` | Request timeout in seconds |
 | `UIAUTO_REPORT_DIR` | — | — | Report output directory. When set, reports are written directly here instead of `task_xxx/` subdirectories |
+| `UIAUTO_STEP_WAIT_MS` | — | `1000` | Pause between steps in milliseconds to allow app loading; set to 0 to disable |
 | `OPENROUTER_SITE_URL` | — | — | OpenRouter site URL (request tracking) |
 | `OPENROUTER_SITE_NAME` | — | — | OpenRouter site name (request tracking) |
 | `SESSION_ID` | — | auto-generated UUID | Session ID for request tracking |

@@ -6,4 +6,6 @@ UIAutoAgent - AI 驱动的移动端 UI 自动化框架。通过视觉 AI 模型�
 
 - 不要直接修改pyproject.toml 使用uv命令来添加或移除库
 - 使用dictlog代替标准库logging
-
+- 写完代码要运行一下单测
+- 如果有使用上的更改，需要同步到readme上
+- 读取环境变量使用函数 _get_env

@@ -12,6 +12,21 @@ from uiautoagent.detector import BBox, DetectionResult
 SwipeDirection = Literal["up", "down", "left", "right"]
 
 
+def direction_to_swipe_coords(
+    w: int, h: int, direction: SwipeDirection, ratio: float = 0.25
+) -> tuple[int, int, int, int]:
+    """方向 → 滑动起止坐标"""
+    cx, cy = w // 2, h // 2
+    dist_x = int(w * ratio)
+    dist_y = int(h * ratio)
+    return {
+        "up": (cx, cy + dist_y // 2, cx, cy - dist_y // 2),
+        "down": (cx, cy - dist_y // 2, cx, cy + dist_y // 2),
+        "left": (cx + dist_x // 2, cy, cx - dist_x // 2, cy),
+        "right": (cx - dist_x // 2, cy, cx + dist_x // 2, cy),
+    }[direction]
+
+
 class DeviceController(ABC):
     """设备控制器抽象基类"""
 
@@ -30,12 +45,14 @@ class DeviceController(ABC):
         """滑动屏幕"""
         pass
 
-    @abstractmethod
     def swipe_direction(
         self, direction: SwipeDirection, ratio: float = 0.25, duration_ms: int = 300
     ) -> None:
         """向指定方向滑动"""
-        pass
+        info = self.get_device_info()
+        w, h = info["width"], info["height"]
+        x1, y1, x2, y2 = direction_to_swipe_coords(w, h, direction, ratio)
+        self.swipe(x1, y1, x2, y2, duration_ms)
 
     @abstractmethod
     def input_text(self, text: str) -> None:

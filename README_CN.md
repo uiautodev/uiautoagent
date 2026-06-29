@@ -69,6 +69,7 @@ SESSION_ID=my-session-123   # 默认自动生成 UUID
 | `UIAUTO_MODEL_PROXY` | `MODEL_PROXY` | — | HTTP 代理（如 `http://127.0.0.1:7890`） |
 | `UIAUTO_REQUEST_TIMEOUT` | `REQUEST_TIMEOUT` | `60` | 请求超时（秒） |
 | `UIAUTO_REPORT_DIR` | — | — | 报告输出目录。设置后跳过 `task_xxx/` 子目录，直接写入此路径 |
+| `UIAUTO_STEP_WAIT_MS` | — | `1000` | 操作步骤间等待时间（毫秒），让应用完成加载，设为 0 关闭 |
 | `OPENROUTER_SITE_URL` | — | — | OpenRouter 站点 URL（请求追踪） |
 | `OPENROUTER_SITE_NAME` | — | — | OpenRouter 站点名称（请求追踪） |
 | `SESSION_ID` | — | 自动生成 UUID | 会话 ID，用于请求追踪 |

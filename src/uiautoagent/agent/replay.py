@@ -9,8 +9,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from uiautoagent.agent.device_agent import ActionDetail, DeviceAgent, TaskStep
+from uiautoagent.agent.device_agent import DeviceAgent, TaskStep
 from uiautoagent.agent.plan import ActionType, TaskProposal
+from uiautoagent.env import env
 
 log = dictlog.get_logger(__name__)
 
@@ -18,11 +19,8 @@ DEFAULT_RECORDINGS_DIR = Path("recordings")
 
 
 def _get_recordings_dir() -> Path:
-    import os
-
-    env_dir = os.getenv("UIAUTO_RECORDINGS_DIR")
-    if env_dir:
-        return Path(env_dir)
+    if env.recordings_dir:
+        return Path(env.recordings_dir)
     return DEFAULT_RECORDINGS_DIR
 
 
@@ -179,11 +177,11 @@ def replay_task(
                 )
                 continue
 
-            # 执行操作（使用预先解析的实际坐标）
+            # 执行操作
             log.info("执行步骤", step=f"{i + 1}/{total_steps}", action=action_desc)
-            detail = step.action_detail or ActionDetail()
             try:
-                agent._execute_action_from_detail(step.action, detail)
+                screenshot_path = agent._take_screenshot()
+                agent._execute_action(step.action, screenshot_path)
             except Exception as e:
                 log.error("步骤执行失败", step=step_num, error=str(e))
                 step_results.append(
