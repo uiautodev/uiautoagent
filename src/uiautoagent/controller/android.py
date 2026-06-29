@@ -95,8 +95,8 @@ class AndroidController(DeviceController):
             img = self._device.screenshot()
             img.save(str(output))
         except Exception:
-            info = self.get_device_info()
-            img = Image.new("RGB", (info["width"], info["height"]), (0, 0, 0))
+            size = self._device.window_size()  # 设备离线则直接抛异常
+            img = Image.new("RGB", (size.width, size.height), (0, 0, 0))
             img.save(output)
         return output
 
